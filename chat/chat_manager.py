@@ -1,31 +1,9 @@
 from openai import OpenAI
 from dotenv import load_dotenv
 import os
+from chat.message import Message, ChatHistory
 
 load_dotenv()
-
-
-class ChatHistory:
-    def __init__(self):
-        self.messages = []
-
-    def add_message(self, message):
-        self.messages.append(message.to_dict())
-
-    def get_messages(self):
-        return self.messages
-
-
-class Message:
-    def __init__(self, role, content):
-        self.role = role
-        self.content = content
-
-    def to_dict(self):
-        return {"role": self.role, "content": self.content}
-
-    def get_content(self):
-        return self.content
 
 
 class ChatManager:
@@ -48,8 +26,3 @@ class ChatManager:
             print("Assistant:", response.output_text)
 
             user_input = Message("user", input("User: "))
-
-
-if __name__ == "__main__":
-    chat_manager = ChatManager()
-    chat_manager.chat()
