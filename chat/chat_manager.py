@@ -2,27 +2,94 @@ from openai import OpenAI
 from dotenv import load_dotenv
 import os
 from chat.message import Message, ChatHistory
+from rag.retriever import RAGRetriever
 
 load_dotenv()
 
+RAG_SYSTEM_PROMPT = """You are a helpful assistant that answers questions based on
+video content the user has added to their knowledge base. When answering:
+- Ground your answers in the provided context
+- Apply the advice to the user's specific situation when they share it
+- Cite the source video and timestamp when referencing specific points
+- Quote timestamps exactly as shown in the context tags (e.g., [Video Title @ 12:34])
+- If the context doesn't cover the question, say so honestly
+- Do not tell the user to go elsewhere unless they explicitly ask for external resources"""
+
 
 class ChatManager:
-    def __init__(self, model="gpt-4o-mini"):
+    def __init__(self, model: str = "gpt-4o-mini", user_id: str = "default_user") -> None:
         self.chat_history = ChatHistory()
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.model = model
+        self.user_id = user_id
+        self.retriever = RAGRetriever()
 
-    def chat(self):
-        print("Assistant: Hello! How can I help you today?\n")
-        user_input = Message("user", input("User: "))
-        while user_input.get_content() != "exit":
-            self.chat_history.add_message(user_input)
-            response = self.client.responses.create(
+    def add_youtube_video(self, url: str, title: str) -> None:
+        print(f"Ingesting: {title}...")
+        count = self.retriever.ingest_youtube_url(self.user_id, url, title)
+        print(f"Done — {count} chunks stored.\n")
+
+    def _build_messages(self, context: str) -> list[dict[str, str]]:
+        messages = [{"role": "system", "content": RAG_SYSTEM_PROMPT}]
+        messages.append(
+            {
+                "role": "system",
+                "content": f"Relevant context from your knowledge base:\n\n{context}",
+            }
+        )
+        messages.extend(self.chat_history.get_messages())
+        return messages
+
+    def chat(self) -> None:
+        print(
+            "Assistant: Hello! Add a YouTube URL to build your knowledge base, then ask questions about your uploaded content.\n"
+        )
+        print("Commands: 'add <url> | <title>'  or  'exit'\n")
+
+        while True:
+            user_input = input("User: ").strip()
+
+            if user_input == "exit":
+                break
+
+            # handle the add command
+            if user_input.startswith("add "):
+                try:
+                    _, rest = user_input.split(" ", 1)
+                    url, title = rest.split("|")
+                    self.add_youtube_video(url.strip(), title.strip())
+                except ValueError:
+                    print("Assistant: Use format — add <url> | <title>\n")
+                continue
+
+            context, sources, use_rag = None, [], False
+            try:
+                context, sources, use_rag = self.retriever.query(self.user_id, user_input)
+            except Exception as e:
+                print(f"DEBUG - retriever query failed: {e}")
+
+            if not use_rag:
+                print(
+                    "\nAssistant: I couldn't find anything relevant to that in your uploaded videos. Try rephrasing or ask something more specific to your content.\n"
+                )
+                continue
+
+            messages = self._build_messages(context or "")
+            messages.append({"role": "user", "content": user_input})
+
+            response = self.client.chat.completions.create(
                 model=self.model,
-                input=self.chat_history.get_messages(),
+                messages=messages,
             )
 
-            self.chat_history.add_message(Message("assistant", response.output_text))
-            print("Assistant:", response.output_text)
+            answer = response.choices[0].message.content or ""
+            self.chat_history.add_message(Message("user", user_input))
+            self.chat_history.add_message(Message("assistant", answer))
 
-            user_input = Message("user", input("User: "))
+            print(f"\nAssistant: {answer}")
+
+            if sources:
+                print("\nSources:")
+                for s in sources:
+                    print(f"  - {s['title']} @ {s['timestamp']}")
+            print()
