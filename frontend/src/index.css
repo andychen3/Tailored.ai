@@ -1,0 +1,68 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #0e0e0f;
+  --bg2: #161618;
+  --bg3: #1c1c1f;
+  --bg4: #242428;
+  --border: rgba(255, 255, 255, 0.07);
+  --border2: rgba(255, 255, 255, 0.12);
+  --text: #e8e8e6;
+  --text2: #9a9994;
+  --text3: #5a5955;
+  --accent: #5b6af0;
+  --accent-bg: rgba(91, 106, 240, 0.12);
+  --accent-border: rgba(91, 106, 240, 0.35);
+  --green: #3dba7e;
+  --green-bg: rgba(61, 186, 126, 0.1);
+  --amber: #e89b3f;
+  --amber-bg: rgba(232, 155, 63, 0.1);
+  --red: #e05c5c;
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply m-0 overflow-hidden bg-bg font-sans text-text antialiased;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border2) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: var(--border2);
+    border-radius: 999px;
+  }
+}
+
+@layer components {
+  .card-surface {
+    @apply rounded-card border border-border bg-bg2;
+  }
+}
