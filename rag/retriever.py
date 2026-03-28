@@ -33,7 +33,7 @@ class RAGRetriever:
         return len(records)  # return chunk count for UI feedback
 
     def query(
-        self, user_id: str, question: str, top_k: int = 5
+        self, user_id: str, question: str, top_k: int = 12
     ) -> tuple[str, list[dict], bool]:
         results = index.search(
             namespace="__default__",
@@ -66,9 +66,12 @@ class RAGRetriever:
                 }
             )
 
+        fallback_hits = [h for h in ranked_hits if h["chunk_text"]][:3]
         relevant_hits = self._select_relevant_hits(ranked_hits)
         if not relevant_hits:
-            return "", [], False
+            if not fallback_hits:
+                return "", [], False
+            relevant_hits = fallback_hits
 
         chunks = []
         dedupe_keys = set()
@@ -120,13 +123,13 @@ class RAGRetriever:
         return token
 
     def _extract_keywords(self, text: str) -> set[str]:
-        # Lightweight keyword extraction without maintaining a stopword list.
-        # Keeping only longer tokens reduces noise like "what", "tell", "about".
         raw_tokens = re.findall(r"[a-zA-Z0-9]+", text.lower())
         keywords = {self._normalize_token(t) for t in raw_tokens if len(t) >= 5}
         return keywords
 
-    def _select_relevant_hits(self, ranked_hits: list[dict], max_hits: int = 3) -> list[dict]:
+    def _select_relevant_hits(
+        self, ranked_hits: list[dict], max_hits: int = 3
+    ) -> list[dict]:
         if not ranked_hits:
             return []
 
