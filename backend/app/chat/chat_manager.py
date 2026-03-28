@@ -1,8 +1,8 @@
 from openai import OpenAI
 from dotenv import load_dotenv
 import os
-from chat.message import Message, ChatHistory
-from rag.retriever import RAGRetriever
+from app.chat.message import Message, ChatHistory
+from app.rag.retriever import RAGRetriever
 
 load_dotenv()
 
@@ -15,6 +15,11 @@ video content the user has added to their knowledge base. When answering:
 - If the context doesn't cover the question, say so honestly
 - Do not tell the user to go elsewhere unless they explicitly ask for external resources"""
 
+NO_CONTEXT_MESSAGE = (
+    "I couldn't find anything relevant to that in your uploaded videos. "
+    "Try rephrasing or ask something more specific to your content."
+)
+
 
 class ChatManager:
     def __init__(self, model: str = "gpt-4o-mini", user_id: str = "default_user") -> None:
@@ -24,10 +29,9 @@ class ChatManager:
         self.user_id = user_id
         self.retriever = RAGRetriever()
 
-    def add_youtube_video(self, url: str, title: str) -> None:
-        print(f"Ingesting: {title}...")
+    def add_youtube_video(self, url: str, title: str) -> int:
         count = self.retriever.ingest_youtube_url(self.user_id, url, title)
-        print(f"Done — {count} chunks stored.\n")
+        return count
 
     def _build_messages(self, context: str) -> list[dict[str, str]]:
         messages = [{"role": "system", "content": RAG_SYSTEM_PROMPT}]
@@ -39,6 +43,24 @@ class ChatManager:
         )
         messages.extend(self.chat_history.get_messages())
         return messages
+
+    def answer_question(self, user_input: str) -> tuple[str, list[dict], bool]:
+        context, sources, use_rag = self.retriever.query(self.user_id, user_input)
+        if not use_rag:
+            return NO_CONTEXT_MESSAGE, [], False
+
+        messages = self._build_messages(context or "")
+        messages.append({"role": "user", "content": user_input})
+
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+        )
+
+        answer = response.choices[0].message.content or ""
+        self.chat_history.add_message(Message("user", user_input))
+        self.chat_history.add_message(Message("assistant", answer))
+        return answer, sources, True
 
     def chat(self) -> None:
         print(
@@ -57,34 +79,24 @@ class ChatManager:
                 try:
                     _, rest = user_input.split(" ", 1)
                     url, title = rest.split("|")
-                    self.add_youtube_video(url.strip(), title.strip())
+                    cleaned_url = url.strip()
+                    cleaned_title = title.strip()
+                    print(f"Ingesting: {cleaned_title}...")
+                    count = self.add_youtube_video(cleaned_url, cleaned_title)
+                    print(f"Done - {count} chunks stored.\n")
                 except ValueError:
-                    print("Assistant: Use format — add <url> | <title>\n")
+                    print("Assistant: Use format - add <url> | <title>\n")
                 continue
 
-            context, sources, use_rag = None, [], False
             try:
-                context, sources, use_rag = self.retriever.query(self.user_id, user_input)
+                answer, sources, use_rag = self.answer_question(user_input)
             except Exception as e:
                 print(f"DEBUG - retriever query failed: {e}")
-
-            if not use_rag:
-                print(
-                    "\nAssistant: I couldn't find anything relevant to that in your uploaded videos. Try rephrasing or ask something more specific to your content.\n"
-                )
                 continue
 
-            messages = self._build_messages(context or "")
-            messages.append({"role": "user", "content": user_input})
-
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-            )
-
-            answer = response.choices[0].message.content or ""
-            self.chat_history.add_message(Message("user", user_input))
-            self.chat_history.add_message(Message("assistant", answer))
+            if not use_rag:
+                print(f"\nAssistant: {answer}\n")
+                continue
 
             print(f"\nAssistant: {answer}")
 

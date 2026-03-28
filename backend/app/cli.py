@@ -1,4 +1,4 @@
-from chat.chat_manager import ChatManager
+from app.chat.chat_manager import ChatManager
 
 
 def main() -> None:

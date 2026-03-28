@@ -1,6 +1,6 @@
-from pinecone_client import index
-from rag.ingestion.youtube_ingester import YouTubeIngester
-from rag.ingestion.chunker import Chunker
+from app.pinecone_client import index
+from app.rag.ingestion.youtube_ingester import YouTubeIngester
+from app.rag.ingestion.chunker import Chunker
 from pinecone import SearchQuery
 from typing import Any
 import re
