@@ -1,4 +1,5 @@
-export type SourceStatus = "processing" | "ready" | "error";
+export type SourceStatus = "uploading" | "queued" | "processing" | "ready" | "error";
+export type SourceType = "youtube" | "video_file" | "pdf" | "text";
 
 export interface SourceItem {
   id: number;
@@ -8,6 +9,10 @@ export interface SourceItem {
   chunks: number;
   errorMessage?: string;
   videoId?: string;
+  fileId?: string;
+  jobId?: string;
+  sourceType?: SourceType;
+  uploadPercent?: number;
 }
 
 export interface SourceChip {
@@ -15,6 +20,7 @@ export interface SourceChip {
   title: string;
   videoId?: string;
   url?: string;
+  pageNumber?: number;
 }
 
 export type MessageRole = "user" | "assistant";

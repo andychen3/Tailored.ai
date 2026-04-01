@@ -4,15 +4,37 @@ import { DEFAULT_SESSION_TITLE } from "../constants/chatUi";
 import { createId, detectSourceTitle, truncateSessionTitle } from "../lib/chatUtils";
 import {
   createSession as createSessionApi,
+  getIngestJob,
+  ingestFile,
   ingestYoutube,
   sendMessage as sendMessageApi,
   toUserFacingError,
 } from "../lib/api";
+import type { SourceType } from "../types/chat";
 import { chatReducer, createInitialChatState } from "../state/chatReducer";
 import type { ChatSession, SourceChip } from "../types/chat";
 
 const DEFAULT_USER_ID = import.meta.env.VITE_DEFAULT_USER_ID ?? "default_user";
 const DEFAULT_MODEL = import.meta.env.VITE_OPENAI_MODEL ?? "gpt-4o-mini";
+const INGEST_POLL_INTERVAL_MS = 1500;
+
+function detectFileSourceType(fileName: string): SourceType | undefined {
+  const extension = fileName.split(".").pop()?.toLowerCase();
+  if (extension === "mp4" || extension === "mov" || extension === "avi") {
+    return "video_file";
+  }
+  if (extension === "pdf") {
+    return "pdf";
+  }
+  if (extension === "txt") {
+    return "text";
+  }
+  return undefined;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
 
 export function useChatController() {
   const initialIsLarge = typeof window !== "undefined" ? window.innerWidth >= 1024 : true;
@@ -78,6 +100,88 @@ export function useChatController() {
     dispatch({ type: "SET_CHAT_INPUT", value });
   }, []);
 
+  const uploadFile = useCallback(
+    async (file: File) => {
+      if (isAddingSource) return;
+
+      setRequestError(null);
+      setIsAddingSource(true);
+
+      const sourceId = createId();
+      dispatch({
+        type: "ADD_SOURCE",
+        source: {
+          id: sourceId,
+          url: file.name,
+          title: file.name,
+          status: "uploading",
+          chunks: 0,
+          sourceType: detectFileSourceType(file.name),
+          uploadPercent: 0,
+        },
+      });
+
+      try {
+        const result = await ingestFile(DEFAULT_USER_ID, file, (uploadPercent) => {
+          dispatch({
+            type: "UPDATE_SOURCE_UPLOAD",
+            sourceId,
+            uploadPercent,
+          });
+        });
+
+        dispatch({
+          type: "MARK_SOURCE_QUEUED",
+          sourceId,
+          jobId: result.job_id,
+          sourceType: result.source_type as SourceType,
+        });
+
+        while (true) {
+          const job = await getIngestJob(result.job_id);
+
+          if (job.status === "queued") {
+            dispatch({
+              type: "MARK_SOURCE_QUEUED",
+              sourceId,
+              jobId: job.job_id,
+              sourceType: job.source_type as SourceType,
+            });
+          } else if (job.status === "processing") {
+            dispatch({
+              type: "MARK_SOURCE_PROCESSING",
+              sourceId,
+              jobId: job.job_id,
+              sourceType: job.source_type as SourceType,
+            });
+          } else if (job.status === "ready") {
+            dispatch({
+              type: "MARK_SOURCE_READY",
+              sourceId,
+              chunks: job.chunks_ingested ?? 0,
+              videoId: "",
+              title: job.file_name,
+              fileId: job.file_id ?? undefined,
+              sourceType: job.source_type as SourceType,
+            });
+            break;
+          } else {
+            throw new Error(job.error_message ?? "File ingestion failed.");
+          }
+
+          await sleep(INGEST_POLL_INTERVAL_MS);
+        }
+      } catch (error) {
+        const message = toUserFacingError(error, "Failed to upload file.");
+        dispatch({ type: "MARK_SOURCE_ERROR", sourceId, errorMessage: message });
+        setRequestError(message);
+      } finally {
+        setIsAddingSource(false);
+      }
+    },
+    [isAddingSource],
+  );
+
   const addSource = useCallback(async () => {
     const url = state.urlInput.trim();
     if (!url || isAddingSource) {
@@ -96,6 +200,7 @@ export function useChatController() {
         title: detectSourceTitle(url),
         status: "processing",
         chunks: 0,
+        sourceType: "youtube",
       },
     });
 
@@ -111,6 +216,7 @@ export function useChatController() {
         chunks: result.chunks_ingested,
         videoId: result.video_id,
         title: result.video_title,
+        sourceType: "youtube",
       });
     } catch (error) {
       const message = toUserFacingError(error, "Failed to add source.");
@@ -178,6 +284,7 @@ export function useChatController() {
         title: source.title || "Source",
         videoId: source.video_id,
         url: source.url,
+        pageNumber: source.page_number,
       }));
 
       dispatch({
@@ -259,6 +366,7 @@ export function useChatController() {
     setUrlInput,
     setChatInput,
     addSource,
+    uploadFile,
     sendMessage,
     startNewChat,
     selectSession,

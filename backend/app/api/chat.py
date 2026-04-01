@@ -24,7 +24,11 @@ def create_session(
     return CreateSessionResponse(session_id=session_id, user_id=payload.user_id)
 
 
-@router.post("/message", response_model=ChatMessageResponse)
+@router.post(
+    "/message",
+    response_model=ChatMessageResponse,
+    response_model_exclude_none=True,
+)
 def send_message(
     payload: ChatMessageRequest,
     store: SessionStore = Depends(get_session_store),

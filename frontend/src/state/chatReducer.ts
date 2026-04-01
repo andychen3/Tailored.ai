@@ -1,4 +1,4 @@
-import type { ChatMessage, ChatSession, SourceItem } from "../types/chat";
+import type { ChatMessage, ChatSession, SourceItem, SourceType } from "../types/chat";
 
 export interface ChatAppState {
   isLargeScreen: boolean;
@@ -22,12 +22,27 @@ export type ChatAction =
   | { type: "SET_URL_INPUT"; value: string }
   | { type: "SET_CHAT_INPUT"; value: string }
   | { type: "ADD_SOURCE"; source: SourceItem }
+  | { type: "UPDATE_SOURCE_UPLOAD"; sourceId: number; uploadPercent: number }
+  | {
+      type: "MARK_SOURCE_QUEUED";
+      sourceId: number;
+      jobId: string;
+      sourceType?: SourceType;
+    }
+  | {
+      type: "MARK_SOURCE_PROCESSING";
+      sourceId: number;
+      jobId?: string;
+      sourceType?: SourceType;
+    }
   | {
       type: "MARK_SOURCE_READY";
       sourceId: number;
       chunks: number;
-      videoId: string;
+      videoId?: string;
       title: string;
+      fileId?: string;
+      sourceType?: SourceType;
     }
   | { type: "MARK_SOURCE_ERROR"; sourceId: number; errorMessage: string }
   | { type: "CREATE_SESSION"; session: ChatSession }
@@ -111,6 +126,55 @@ export function chatReducer(state: ChatAppState, action: ChatAction): ChatAppSta
         urlInput: "",
       };
 
+    case "UPDATE_SOURCE_UPLOAD":
+      return {
+        ...state,
+        sources: state.sources.map((source) =>
+          source.id === action.sourceId
+            ? {
+                ...source,
+                status: "uploading",
+                uploadPercent: action.uploadPercent,
+                errorMessage: undefined,
+              }
+            : source,
+        ),
+      };
+
+    case "MARK_SOURCE_QUEUED":
+      return {
+        ...state,
+        sources: state.sources.map((source) =>
+          source.id === action.sourceId
+            ? {
+                ...source,
+                status: "queued",
+                jobId: action.jobId,
+                sourceType: action.sourceType ?? source.sourceType,
+                uploadPercent: 100,
+                errorMessage: undefined,
+              }
+            : source,
+        ),
+      };
+
+    case "MARK_SOURCE_PROCESSING":
+      return {
+        ...state,
+        sources: state.sources.map((source) =>
+          source.id === action.sourceId
+            ? {
+                ...source,
+                status: "processing",
+                jobId: action.jobId ?? source.jobId,
+                sourceType: action.sourceType ?? source.sourceType,
+                uploadPercent: undefined,
+                errorMessage: undefined,
+              }
+            : source,
+        ),
+      };
+
     case "MARK_SOURCE_READY":
       return {
         ...state,
@@ -122,6 +186,9 @@ export function chatReducer(state: ChatAppState, action: ChatAction): ChatAppSta
                 chunks: action.chunks,
                 videoId: action.videoId,
                 title: action.title,
+                fileId: action.fileId,
+                sourceType: action.sourceType,
+                uploadPercent: undefined,
                 errorMessage: undefined,
               }
             : source,
@@ -136,6 +203,7 @@ export function chatReducer(state: ChatAppState, action: ChatAction): ChatAppSta
             ? {
                 ...source,
                 status: "error",
+                uploadPercent: undefined,
                 errorMessage: action.errorMessage,
               }
             : source,

@@ -28,6 +28,7 @@ function App() {
     setUrlInput,
     setChatInput,
     addSource,
+    uploadFile,
     sendMessage,
     startNewChat,
     selectSession,
@@ -76,6 +77,7 @@ function App() {
         isAddingSource={isAddingSource}
         onUrlInputChange={setUrlInput}
         onAddSource={addSource}
+        onUploadFile={uploadFile}
         onClose={closeDrawer}
       />
     </div>

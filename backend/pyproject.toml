@@ -22,6 +22,11 @@ gradio = "^5.43.1"
 pinecone = "^8.1.0"
 youtube-transcript-api = "^1.2.4"
 yt-dlp = "^2026.3.17"
+pypdf = "^4.3"
+moviepy = "^1.0"
+python-multipart = "^0.0"
+faster-whisper = "^1.1"
+langchain-text-splitters = "^0.3"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.2"

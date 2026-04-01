@@ -79,3 +79,6 @@ curl -s -X POST http://127.0.0.1:8000/chat/message \
 cd backend
 poetry run pytest -q
 ```
+curl -s -X POST http://127.0.0.1:8000/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{"session_id":"ef472c4f303943a69ee1e6cbecb407d8","message":"What are the key points?"}'

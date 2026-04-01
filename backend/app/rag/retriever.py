@@ -4,6 +4,10 @@ from app.rag.ingestion.chunker import Chunker
 from pinecone import SearchQuery
 from typing import Any
 import re
+import uuid
+
+
+PINECONE_BATCH_SIZE = 90  # Pinecone limit is 96; stay safely under
 
 
 class RAGRetriever:
@@ -24,6 +28,7 @@ class RAGRetriever:
                 "id": f"{user_id}_{video_id}_{i}",
                 "chunk_text": chunk["text"],
                 "user_id": user_id,
+                "source_type": "youtube",
                 "video_id": video_id,
                 "video_title": video_title,
                 "timestamp": chunk["timestamp"],
@@ -31,8 +36,90 @@ class RAGRetriever:
             for i, chunk in enumerate(chunks)
         ]
 
-        index.upsert_records(namespace="__default__", records=records)
+        for i in range(0, len(records), PINECONE_BATCH_SIZE):
+            index.upsert_records(
+                namespace="__default__",
+                records=records[i : i + PINECONE_BATCH_SIZE],
+            )
         return len(records), video_title
+
+    def ingest_file(
+        self,
+        user_id: str,
+        file_path: str,
+        filename: str,
+        source_type: str,
+    ) -> tuple[int, str, str]:
+        """Ingest an uploaded file.
+
+        Returns (chunk_count, file_id, filename).
+        """
+        file_id = (
+            f"{filename.rsplit('.', 1)[0].lower().replace(' ', '_')}"
+            f"_{uuid.uuid4().hex[:8]}"
+        )
+
+        if source_type == "video_file":
+            from app.rag.ingestion.video_file_ingester import VideoFileIngester
+            transcript = VideoFileIngester().extract_transcript(file_path)
+            chunks = self.chunker.chunk_transcript(transcript)
+            records = [
+                {
+                    "id": f"{user_id}_{file_id}_{i}",
+                    "chunk_text": chunk["text"],
+                    "user_id": user_id,
+                    "source_type": source_type,
+                    "file_id": file_id,
+                    "file_name": filename,
+                    "timestamp": chunk["timestamp"],
+                }
+                for i, chunk in enumerate(chunks)
+            ]
+        elif source_type == "pdf":
+            from app.rag.ingestion.pdf_ingester import PDFIngester
+            from app.rag.ingestion.text_chunker import TextChunker
+            pages = PDFIngester().extract_pages(file_path)
+            chunker = TextChunker()
+            records = []
+            idx = 0
+            for page in pages:
+                page_chunks = chunker.chunk_text(page["text"])
+                for chunk in page_chunks:
+                    records.append({
+                        "id": f"{user_id}_{file_id}_{idx}",
+                        "chunk_text": chunk["text"],
+                        "user_id": user_id,
+                        "source_type": source_type,
+                        "file_id": file_id,
+                        "file_name": filename,
+                        "timestamp": "",
+                        "page_number": page["page"],
+                    })
+                    idx += 1
+        else:
+            from app.rag.ingestion.text_file_ingester import TextFileIngester
+            from app.rag.ingestion.text_chunker import TextChunker
+            text = TextFileIngester().extract_text(file_path)
+            chunks = TextChunker().chunk_text(text)
+            records = [
+                {
+                    "id": f"{user_id}_{file_id}_{i}",
+                    "chunk_text": chunk["text"],
+                    "user_id": user_id,
+                    "source_type": source_type,
+                    "file_id": file_id,
+                    "file_name": filename,
+                    "timestamp": "",
+                }
+                for i, chunk in enumerate(chunks)
+            ]
+
+        for i in range(0, len(records), PINECONE_BATCH_SIZE):
+            index.upsert_records(
+                namespace="__default__",
+                records=records[i : i + PINECONE_BATCH_SIZE],
+            )
+        return len(records), file_id, filename
 
     def query(
         self, user_id: str, question: str, top_k: int = 12
@@ -44,7 +131,17 @@ class RAGRetriever:
                 top_k=top_k,
                 filter={"user_id": {"$eq": user_id}},
             ),
-            fields=["chunk_text", "video_title", "timestamp", "user_id", "video_id"],
+            fields=[
+                "chunk_text",
+                "video_title",
+                "timestamp",
+                "user_id",
+                "video_id",
+                "source_type",
+                "file_name",
+                "file_id",
+                "page_number",
+            ],
         )
 
         hits = self._extract_hits(results)
@@ -54,18 +151,31 @@ class RAGRetriever:
         for hit in hits:
             fields = getattr(hit, "fields", {}) or {}
             chunk_text = fields.get("chunk_text", "") or ""
-            video_title = fields.get("video_title", "") or ""
+            source_type = fields.get("source_type", "youtube") or "youtube"
             timestamp = fields.get("timestamp", "") or ""
-            video_id = fields.get("video_id", "") or ""
+
+            page_number = fields.get("page_number") or None
+            if source_type == "youtube":
+                title = fields.get("video_title", "") or ""
+                video_id = fields.get("video_id", "") or ""
+                file_name = ""
+            else:
+                title = fields.get("file_name", "") or ""
+                video_id = ""
+                file_name = title
+
             chunk_keywords = self._extract_keywords(chunk_text)
             overlap_terms = query_keywords.intersection(chunk_keywords)
 
             ranked_hits.append(
                 {
                     "chunk_text": chunk_text,
-                    "video_title": video_title,
+                    "title": title,
                     "timestamp": timestamp,
                     "video_id": video_id,
+                    "file_name": file_name,
+                    "source_type": source_type,
+                    "page_number": page_number,
                     "keyword_overlap_count": len(overlap_terms),
                 }
             )
@@ -82,29 +192,39 @@ class RAGRetriever:
         sources = []
         for hit in relevant_hits:
             chunk_text = hit["chunk_text"]
-            video_title = hit["video_title"]
+            title = hit["title"]
             timestamp = hit["timestamp"]
             video_id = hit["video_id"]
+            source_type = hit["source_type"]
+            page_number = hit["page_number"]
 
             source_tag = "Source"
-            if video_title and timestamp:
-                source_tag = f"{video_title} @ {timestamp}"
-            elif video_title:
-                source_tag = video_title
+            if title and timestamp:
+                source_tag = f"{title} @ {timestamp}"
+            elif title and page_number:
+                source_tag = f"{title} p.{page_number}"
+            elif title:
+                source_tag = title
             elif timestamp:
                 source_tag = timestamp
             if chunk_text:
                 chunks.append(f"[{source_tag}]\n{chunk_text}")
 
-            source_key = (video_title, timestamp)
+            source_key = (title, timestamp, page_number)
             if source_key not in dedupe_keys:
                 dedupe_keys.add(source_key)
-                url = f"https://www.youtube.com/watch?v={video_id}" if video_id else None
+                if source_type == "youtube" and video_id:
+                    url = (
+                        f"https://www.youtube.com/watch?v={video_id}"
+                    )
+                else:
+                    url = None
                 sources.append(
                     {
-                        "title": video_title,
+                        "title": title,
                         "timestamp": timestamp,
                         "video_id": video_id,
+                        "page_number": page_number,
                         "url": url,
                     }
                 )
@@ -118,7 +238,9 @@ class RAGRetriever:
             return list(matches)
 
         search_result = getattr(results, "result", None)
-        hits = getattr(search_result, "hits", None) if search_result else None
+        hits = (
+            getattr(search_result, "hits", None) if search_result else None
+        )
         if hits is not None:
             return list(hits)
 
@@ -132,7 +254,9 @@ class RAGRetriever:
 
     def _extract_keywords(self, text: str) -> set[str]:
         raw_tokens = re.findall(r"[a-zA-Z0-9]+", text.lower())
-        keywords = {self._normalize_token(t) for t in raw_tokens if len(t) >= 5}
+        keywords = {
+            self._normalize_token(t) for t in raw_tokens if len(t) >= 5
+        }
         return keywords
 
     def _select_relevant_hits(
@@ -141,7 +265,9 @@ class RAGRetriever:
         if not ranked_hits:
             return []
 
-        ranked_hits.sort(key=lambda h: h["keyword_overlap_count"], reverse=True)
+        ranked_hits.sort(
+            key=lambda h: h["keyword_overlap_count"], reverse=True
+        )
         top_overlap = ranked_hits[0]["keyword_overlap_count"]
         if top_overlap < self.MIN_KEYWORD_OVERLAP:
             return []

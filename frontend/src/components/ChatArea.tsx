@@ -196,10 +196,19 @@ export function ChatArea({
                         const href = chip.url ? `${chip.url}&t=${seconds}s` : undefined;
                         const chipClass =
                           "inline-flex items-center gap-1 rounded-full border border-border2 bg-bg3 px-2.5 py-1 font-mono text-[11px] text-text2 transition hover:border-accentBorder hover:text-[#a0aaff]";
+                        const label = chip.ts
+                          ? chip.ts
+                          : chip.pageNumber
+                            ? `p.${chip.pageNumber}`
+                            : null;
                         const inner = (
                           <>
-                            <span className="font-medium text-accent">{chip.ts}</span>
-                            <span className="h-1 w-1 rounded-full bg-text3" />
+                            {label ? (
+                              <>
+                                <span className="font-medium text-accent">{label}</span>
+                                <span className="h-1 w-1 rounded-full bg-text3" />
+                              </>
+                            ) : null}
                             <span>{chip.title}</span>
                           </>
                         );

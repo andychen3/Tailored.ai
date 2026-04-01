@@ -9,11 +9,11 @@ from app.rag.retriever import RAGRetriever
 load_dotenv()
 
 RAG_SYSTEM_PROMPT = """You are a helpful assistant that answers questions based on
-video content the user has added to their knowledge base. When answering:
+content the user has added to their knowledge base. When answering:
 - Ground your answers in the provided context
 - Apply the advice to the user's specific situation when they share it
-- Cite the source video and timestamp when referencing specific points
-- Quote timestamps exactly as shown in the context tags (e.g. Source: [Video Title @ 12:34])
+- Cite the source exactly as shown in the context tags (e.g. [Video Title @ 12:34] or [report.pdf p.5])
+- If no timestamp or page is available, cite just the source title
 - If the context doesn't cover the question, say so honestly
 - Do not tell the user to go elsewhere unless they explicitly ask for external resources
 
@@ -43,7 +43,7 @@ Citation handling:
     [Source: Video Title @ 12:34]"""
 
 NO_CONTEXT_MESSAGE = (
-    "I couldn't find anything relevant to that in your uploaded videos. "
+    "I couldn't find anything relevant to that in your knowledge base. "
     "Try rephrasing or ask something more specific to your content."
 )
 

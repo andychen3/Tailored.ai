@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import type { SourceItem } from "../types/chat";
 
 type SourcesDrawerProps = {
@@ -7,8 +8,44 @@ type SourcesDrawerProps = {
   isAddingSource: boolean;
   onUrlInputChange: (value: string) => void;
   onAddSource: () => void;
+  onUploadFile: (file: File) => void;
   onClose: () => void;
 };
+
+function getSourceStatusText(source: SourceItem): string {
+  if (source.status === "uploading") {
+    return source.uploadPercent != null
+      ? `Uploading... ${source.uploadPercent}%`
+      : "Uploading...";
+  }
+
+  if (source.status === "queued") {
+    return "Queued...";
+  }
+
+  if (source.status === "processing") {
+    if (source.sourceType === "video_file") {
+      return "Transcribing...";
+    }
+    if (source.sourceType === "pdf" || source.sourceType === "text") {
+      return "Indexing...";
+    }
+    return "Processing...";
+  }
+
+  if (source.status === "error") {
+    return "Failed";
+  }
+
+  return `Ready · ${source.chunks} chunks`;
+}
+
+function getProgressWidth(source: SourceItem): string {
+  if (source.status === "uploading" && source.uploadPercent != null) {
+    return `${Math.max(source.uploadPercent, 8)}%`;
+  }
+  return "60%";
+}
 
 export function SourcesDrawer({
   isOpen,
@@ -17,8 +54,10 @@ export function SourcesDrawer({
   isAddingSource,
   onUrlInputChange,
   onAddSource,
+  onUploadFile,
   onClose,
 }: SourcesDrawerProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   return (
     <aside
       className={[
@@ -84,9 +123,24 @@ export function SourcesDrawer({
             <div className="h-px flex-1 bg-border" />
           </div>
 
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".mp4,.mov,.avi,.pdf,.txt"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) {
+                onUploadFile(file);
+                e.target.value = "";
+              }
+            }}
+          />
           <button
             type="button"
-            className="mx-1 flex w-[calc(100%-8px)] items-center justify-center gap-1.5 rounded-card border border-dashed border-border2 bg-transparent px-2 py-2 text-xs text-text2 transition hover:border-accentBorder hover:bg-accentBg hover:text-[#a0aaff]"
+            disabled={isAddingSource}
+            onClick={() => fileInputRef.current?.click()}
+            className="mx-1 flex w-[calc(100%-8px)] items-center justify-center gap-1.5 rounded-card border border-dashed border-border2 bg-transparent px-2 py-2 text-xs text-text2 transition hover:border-accentBorder hover:bg-accentBg hover:text-[#a0aaff] disabled:cursor-not-allowed disabled:opacity-45"
           >
             <svg
               width="12"
@@ -166,6 +220,8 @@ export function SourcesDrawer({
                       <span
                         className={[
                           "h-1.5 w-1.5 rounded-full",
+                          source.status === "uploading" ||
+                          source.status === "queued" ||
                           source.status === "processing"
                             ? "animate-pulseSoft bg-amber"
                             : source.status === "error"
@@ -177,6 +233,8 @@ export function SourcesDrawer({
                       <span
                         className={[
                           "font-mono text-[11px]",
+                          source.status === "uploading" ||
+                          source.status === "queued" ||
                           source.status === "processing"
                             ? "text-amber"
                             : source.status === "error"
@@ -184,11 +242,7 @@ export function SourcesDrawer({
                               : "text-green",
                         ].join(" ")}
                       >
-                        {source.status === "processing"
-                          ? "Processing..."
-                          : source.status === "error"
-                            ? "Failed"
-                            : `Ready · ${source.chunks} chunks`}
+                        {getSourceStatusText(source)}
                       </span>
                     </div>
 
@@ -196,9 +250,14 @@ export function SourcesDrawer({
                       <p className="mt-1.5 text-[11px] leading-4 text-red">{source.errorMessage}</p>
                     ) : null}
 
-                    {source.status === "processing" ? (
+                    {source.status === "uploading" ||
+                    source.status === "queued" ||
+                    source.status === "processing" ? (
                       <div className="mt-1.5 h-0.5 overflow-hidden rounded-full bg-border2">
-                        <div className="h-full w-3/5 rounded-full bg-amber" />
+                        <div
+                          className="h-full rounded-full bg-amber"
+                          style={{ width: getProgressWidth(source) }}
+                        />
                       </div>
                     ) : null}
                   </article>

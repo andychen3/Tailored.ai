@@ -6,6 +6,7 @@ class Source(BaseModel):
     timestamp: str
     video_id: str | None = None
     url: str | None = None
+    page_number: int | None = None
 
 
 class CreateSessionRequest(BaseModel):
