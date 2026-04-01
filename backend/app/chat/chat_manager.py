@@ -36,7 +36,6 @@ Style and readability:
 - If context is missing, say so directly and do not invent details.
 
 Citation handling:
-- Do not put a list of Sources at the end of the response.
 - Do not fabricate timestamps.
 - Do not fabricate sources.
 - When citing a source within a bullet point, place the citation on its own new line directly below the bullet text, like this:
@@ -62,10 +61,6 @@ class ChatManager:
         self.model = model
         self.user_id = user_id
         self.retriever = RAGRetriever()
-
-    def add_youtube_video(self, url: str, title: str) -> int:
-        count = self.retriever.ingest_youtube_url(self.user_id, url, title)
-        return count
 
     def _format_context_for_prompt(self, context: str) -> str:
         if not context:
@@ -135,47 +130,6 @@ class ChatManager:
                 return "\n".join(lines[:i]).rstrip()
         return answer.strip()
 
-    def _format_sources_section(self, sources: list[dict]) -> str:
-        if not sources:
-            return ""
-
-        source_lines: list[str] = []
-        seen_labels: set[str] = set()
-
-        for source in sources:
-            title = (source.get("title") or "").strip()
-            timestamp = (source.get("timestamp") or "").strip()
-
-            if title and timestamp:
-                label = f"{title} @ {timestamp}"
-            elif title:
-                label = title
-            elif timestamp:
-                label = timestamp
-            else:
-                label = "Source"
-
-            if label in seen_labels:
-                continue
-            seen_labels.add(label)
-            source_lines.append(f"- {label}")
-
-        if not source_lines:
-            return ""
-
-        return "Sources:\n" + "\n".join(source_lines)
-
-    def _append_sources_to_answer(self, answer: str, sources: list[dict]) -> str:
-        base_answer = self._strip_markdown(
-            self._strip_model_sources_section(answer or "")
-        )
-        sources_section = self._format_sources_section(sources)
-        if not sources_section:
-            return base_answer
-        if not base_answer:
-            return sources_section
-        return f"{base_answer}\n\n{sources_section}"
-
     def answer_question(self, user_input: str) -> tuple[str, list[dict], bool]:
         context, sources, use_rag = self.retriever.query(self.user_id, user_input)
         if not use_rag:
@@ -190,43 +144,7 @@ class ChatManager:
         )
 
         raw_answer = response.choices[0].message.content or ""
-        answer = self._append_sources_to_answer(raw_answer, sources)
+        answer = self._strip_markdown(self._strip_model_sources_section(raw_answer))
         self.chat_history.add_message(Message("user", user_input))
         self.chat_history.add_message(Message("assistant", answer))
         return answer, sources, True
-
-    def chat(self) -> None:
-
-        while True:
-            user_input = input("User: ").strip()
-
-            if user_input == "exit":
-                break
-
-            # handle the add command
-            if user_input.startswith("add "):
-                try:
-                    _, rest = user_input.split(" ", 1)
-                    url, title = rest.split("|")
-                    cleaned_url = url.strip()
-                    cleaned_title = title.strip()
-                    print(f"Ingesting: {cleaned_title}...")
-                    count = self.add_youtube_video(cleaned_url, cleaned_title)
-                    print(f"Done - {count} chunks stored.\n")
-                except ValueError:
-                    print("Assistant: Use format - add <url> | <title>\n")
-                continue
-
-            try:
-                answer, sources, use_rag = self.answer_question(user_input)
-            except Exception as e:
-                print(f"DEBUG - retriever query failed: {e}")
-                continue
-
-            if not use_rag:
-                print(f"\nAssistant: {answer}\n")
-                continue
-
-            print(f"\nAssistant: {answer}")
-
-            print()
