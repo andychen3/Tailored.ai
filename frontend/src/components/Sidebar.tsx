@@ -4,10 +4,10 @@ type SidebarProps = {
   isOpen: boolean;
   canStartChat: boolean;
   sessions: ChatSession[];
-  currentSessionId: number | null;
+  currentSessionId: string | null;
   onToggle: () => void;
   onNewChat: () => void;
-  onSelectSession: (sessionId: number) => void;
+  onSelectSession: (sessionId: string) => void;
 };
 
 export function Sidebar({
@@ -54,7 +54,7 @@ export function Sidebar({
             isOpen ? "opacity-100" : "w-0 overflow-hidden opacity-0",
           ].join(" ")}
         >
-          tail<span className="text-accent">ored</span>
+          Tailored<span className="text-accent">.ai</span>
         </span>
       </div>
 
@@ -98,7 +98,11 @@ export function Sidebar({
 
       <div className="flex-1 space-y-1 overflow-y-auto px-1.5 pb-2">
         {sessions.length === 0 ? (
-          <div className={isOpen ? "flex h-full items-center justify-center" : "hidden"}>
+          <div
+            className={
+              isOpen ? "flex h-full items-center justify-center" : "hidden"
+            }
+          >
             <div className="mx-2 flex flex-col items-center gap-2 rounded-card border border-dashed border-border bg-bg3/40 p-4 text-center">
               <div className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-bg3 text-text3">
                 <svg
@@ -115,7 +119,9 @@ export function Sidebar({
                   <path d="M7 4v3l2 1" />
                 </svg>
               </div>
-              <p className="text-xs text-text3">No chats yet. Add a source to begin.</p>
+              <p className="text-xs text-text3">
+                No chats yet. Add a source to begin.
+              </p>
             </div>
           </div>
         ) : (
@@ -126,7 +132,9 @@ export function Sidebar({
                 key={session.id}
                 className={[
                   "flex w-full items-center gap-2 rounded-card border p-2 text-left transition",
-                  active ? "border-border bg-bg3" : "border-transparent hover:bg-bg3",
+                  active
+                    ? "border-border bg-bg3"
+                    : "border-transparent hover:bg-bg3",
                 ].join(" ")}
                 onClick={() => onSelectSession(session.id)}
                 type="button"
@@ -160,7 +168,9 @@ export function Sidebar({
                   >
                     {session.title}
                   </div>
-                  <div className="truncate text-[11px] text-text3">{session.createdAtLabel}</div>
+                  <div className="truncate text-[11px] text-text3">
+                    {session.createdAtLabel}
+                  </div>
                 </div>
               </button>
             );

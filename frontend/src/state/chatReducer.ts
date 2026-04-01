@@ -6,7 +6,7 @@ export interface ChatAppState {
   isDrawerOpen: boolean;
   sources: SourceItem[];
   sessions: ChatSession[];
-  currentSessionId: number | null;
+  currentSessionId: string | null;
   urlInput: string;
   chatInput: string;
 }
@@ -22,10 +22,17 @@ export type ChatAction =
   | { type: "SET_URL_INPUT"; value: string }
   | { type: "SET_CHAT_INPUT"; value: string }
   | { type: "ADD_SOURCE"; source: SourceItem }
-  | { type: "MARK_SOURCE_READY"; sourceId: number; chunks: number }
+  | {
+      type: "MARK_SOURCE_READY";
+      sourceId: number;
+      chunks: number;
+      videoId: string;
+      title: string;
+    }
+  | { type: "MARK_SOURCE_ERROR"; sourceId: number; errorMessage: string }
   | { type: "CREATE_SESSION"; session: ChatSession }
-  | { type: "SET_CURRENT_SESSION"; sessionId: number | null }
-  | { type: "APPEND_MESSAGE"; sessionId: number; message: ChatMessage };
+  | { type: "SET_CURRENT_SESSION"; sessionId: string | null }
+  | { type: "APPEND_MESSAGE"; sessionId: string; message: ChatMessage };
 
 export function createInitialChatState(isLargeScreen: boolean): ChatAppState {
   return {
@@ -113,6 +120,23 @@ export function chatReducer(state: ChatAppState, action: ChatAction): ChatAppSta
                 ...source,
                 status: "ready",
                 chunks: action.chunks,
+                videoId: action.videoId,
+                title: action.title,
+                errorMessage: undefined,
+              }
+            : source,
+        ),
+      };
+
+    case "MARK_SOURCE_ERROR":
+      return {
+        ...state,
+        sources: state.sources.map((source) =>
+          source.id === action.sourceId
+            ? {
+                ...source,
+                status: "error",
+                errorMessage: action.errorMessage,
               }
             : source,
         ),

@@ -1,4 +1,4 @@
-export type SourceStatus = "processing" | "ready";
+export type SourceStatus = "processing" | "ready" | "error";
 
 export interface SourceItem {
   id: number;
@@ -6,11 +6,15 @@ export interface SourceItem {
   title: string;
   status: SourceStatus;
   chunks: number;
+  errorMessage?: string;
+  videoId?: string;
 }
 
 export interface SourceChip {
   ts: string;
   title: string;
+  videoId?: string;
+  url?: string;
 }
 
 export type MessageRole = "user" | "assistant";
@@ -23,7 +27,7 @@ export interface ChatMessage {
 }
 
 export interface ChatSession {
-  id: number;
+  id: string;
   title: string;
   createdAtLabel: string;
   messages: ChatMessage[];

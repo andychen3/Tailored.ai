@@ -4,6 +4,8 @@ from pydantic import BaseModel
 class Source(BaseModel):
     title: str
     timestamp: str
+    video_id: str | None = None
+    url: str | None = None
 
 
 class CreateSessionRequest(BaseModel):

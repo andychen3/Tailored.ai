@@ -1,4 +1,5 @@
 from urllib.parse import urlparse, parse_qs
+import yt_dlp
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import TranscriptsDisabled, NoTranscriptFound
 
@@ -6,6 +7,15 @@ from youtube_transcript_api._errors import TranscriptsDisabled, NoTranscriptFoun
 class YouTubeIngester:
     def __init__(self) -> None:
         self.api = YouTubeTranscriptApi()
+
+    def get_video_info(self, url: str) -> dict:
+        opts = {"quiet": True, "skip_download": True, "extract_flat": True}
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            return {
+                "title": info.get("title", "YouTube Video"),
+                "video_id": info.get("id"),
+            }
 
     def get_video_id(self, url: str) -> str | None:
         parsed = urlparse(url)

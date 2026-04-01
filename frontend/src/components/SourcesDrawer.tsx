@@ -4,6 +4,7 @@ type SourcesDrawerProps = {
   isOpen: boolean;
   sources: SourceItem[];
   urlInput: string;
+  isAddingSource: boolean;
   onUrlInputChange: (value: string) => void;
   onAddSource: () => void;
   onClose: () => void;
@@ -13,6 +14,7 @@ export function SourcesDrawer({
   isOpen,
   sources,
   urlInput,
+  isAddingSource,
   onUrlInputChange,
   onAddSource,
   onClose,
@@ -62,15 +64,17 @@ export function SourcesDrawer({
                   onAddSource();
                 }
               }}
+              disabled={isAddingSource}
               placeholder="YouTube URL..."
               className="h-8 flex-1 rounded-card border border-border2 bg-bg3 px-2.5 text-xs text-text outline-none transition placeholder:text-text3 focus:border-accentBorder"
             />
             <button
               type="button"
               onClick={onAddSource}
-              className="rounded-card border border-border2 bg-bg3 px-3 text-xs text-text transition hover:bg-bg4"
+              disabled={isAddingSource}
+              className="rounded-card border border-border2 bg-bg3 px-3 text-xs text-text transition hover:bg-bg4 disabled:cursor-not-allowed disabled:opacity-45"
             >
-              Add
+              {isAddingSource ? "Adding..." : "Add"}
             </button>
           </div>
 
@@ -164,7 +168,9 @@ export function SourcesDrawer({
                           "h-1.5 w-1.5 rounded-full",
                           source.status === "processing"
                             ? "animate-pulseSoft bg-amber"
-                            : "bg-green",
+                            : source.status === "error"
+                              ? "bg-red"
+                              : "bg-green",
                         ].join(" ")}
                       />
 
@@ -173,14 +179,22 @@ export function SourcesDrawer({
                           "font-mono text-[11px]",
                           source.status === "processing"
                             ? "text-amber"
-                            : "text-green",
+                            : source.status === "error"
+                              ? "text-red"
+                              : "text-green",
                         ].join(" ")}
                       >
                         {source.status === "processing"
                           ? "Processing..."
-                          : `Ready · ${source.chunks} chunks`}
+                          : source.status === "error"
+                            ? "Failed"
+                            : `Ready · ${source.chunks} chunks`}
                       </span>
                     </div>
+
+                    {source.status === "error" && source.errorMessage ? (
+                      <p className="mt-1.5 text-[11px] leading-4 text-red">{source.errorMessage}</p>
+                    ) : null}
 
                     {source.status === "processing" ? (
                       <div className="mt-1.5 h-0.5 overflow-hidden rounded-full bg-border2">

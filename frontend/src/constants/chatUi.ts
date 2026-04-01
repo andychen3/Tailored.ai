@@ -1,5 +1,5 @@
 export const EMPTY_STATE_CONTENT = {
-  heading: "Welcome to Tailored",
+  heading: "Welcome to Tailored.ai",
   sub: "Add a video, PDF, or document to your library, then get answers grounded in that content - not generic AI responses.",
 };
 

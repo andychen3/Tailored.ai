@@ -17,6 +17,9 @@ function App() {
     chatInput,
     sources,
     urlInput,
+    isAddingSource,
+    isSendingMessage,
+    requestError,
     toggleNav,
     toggleDrawer,
     openDrawer,
@@ -58,6 +61,8 @@ function App() {
         showEmptyState={showEmptyState}
         messages={chatMessages}
         chatInput={chatInput}
+        isSendingMessage={isSendingMessage}
+        requestError={requestError}
         onChatInputChange={setChatInput}
         onSendMessage={sendMessage}
         onToggleDrawer={toggleDrawer}
@@ -68,6 +73,7 @@ function App() {
         isOpen={isDrawerOpen}
         sources={sources}
         urlInput={urlInput}
+        isAddingSource={isAddingSource}
         onUrlInputChange={setUrlInput}
         onAddSource={addSource}
         onClose={closeDrawer}

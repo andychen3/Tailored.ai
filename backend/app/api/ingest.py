@@ -29,10 +29,9 @@ def ingest_youtube(
         raise HTTPException(status_code=400, detail="Could not extract YouTube video ID.")
 
     try:
-        chunk_count = retriever.ingest_youtube_url(
+        chunk_count, video_title = retriever.ingest_youtube_url(
             user_id=payload.user_id,
             url=source_url,
-            video_title=payload.video_title,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -42,5 +41,6 @@ def ingest_youtube(
     return IngestYoutubeResponse(
         success=True,
         video_id=video_id,
+        video_title=video_title,
         chunks_ingested=chunk_count,
     )

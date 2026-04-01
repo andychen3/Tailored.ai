@@ -13,7 +13,9 @@ class RAGRetriever:
         self.ingester = YouTubeIngester()
         self.chunker = Chunker()
 
-    def ingest_youtube_url(self, user_id: str, url: str, video_title: str) -> int:
+    def ingest_youtube_url(self, user_id: str, url: str) -> tuple[int, str]:
+        video_info = self.ingester.get_video_info(url)
+        video_title = video_info["title"]
         video_id, transcript = self.ingester.fetch_transcript(url)
         chunks = self.chunker.chunk_transcript(transcript)
 
@@ -30,7 +32,7 @@ class RAGRetriever:
         ]
 
         index.upsert_records(namespace="__default__", records=records)
-        return len(records)  # return chunk count for UI feedback
+        return len(records), video_title
 
     def query(
         self, user_id: str, question: str, top_k: int = 12
@@ -42,7 +44,7 @@ class RAGRetriever:
                 top_k=top_k,
                 filter={"user_id": {"$eq": user_id}},
             ),
-            fields=["chunk_text", "video_title", "timestamp", "user_id"],
+            fields=["chunk_text", "video_title", "timestamp", "user_id", "video_id"],
         )
 
         hits = self._extract_hits(results)
@@ -54,6 +56,7 @@ class RAGRetriever:
             chunk_text = fields.get("chunk_text", "") or ""
             video_title = fields.get("video_title", "") or ""
             timestamp = fields.get("timestamp", "") or ""
+            video_id = fields.get("video_id", "") or ""
             chunk_keywords = self._extract_keywords(chunk_text)
             overlap_terms = query_keywords.intersection(chunk_keywords)
 
@@ -62,6 +65,7 @@ class RAGRetriever:
                     "chunk_text": chunk_text,
                     "video_title": video_title,
                     "timestamp": timestamp,
+                    "video_id": video_id,
                     "keyword_overlap_count": len(overlap_terms),
                 }
             )
@@ -80,6 +84,7 @@ class RAGRetriever:
             chunk_text = hit["chunk_text"]
             video_title = hit["video_title"]
             timestamp = hit["timestamp"]
+            video_id = hit["video_id"]
 
             source_tag = "Source"
             if video_title and timestamp:
@@ -94,10 +99,13 @@ class RAGRetriever:
             source_key = (video_title, timestamp)
             if source_key not in dedupe_keys:
                 dedupe_keys.add(source_key)
+                url = f"https://www.youtube.com/watch?v={video_id}" if video_id else None
                 sources.append(
                     {
                         "title": video_title,
                         "timestamp": timestamp,
+                        "video_id": video_id,
+                        "url": url,
                     }
                 )
 

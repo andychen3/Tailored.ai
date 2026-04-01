@@ -1,34 +1,26 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 
 import { DEFAULT_SESSION_TITLE } from "../constants/chatUi";
+import { createId, detectSourceTitle, truncateSessionTitle } from "../lib/chatUtils";
 import {
-  buildMockAssistantReply,
-  createId,
-  detectSourceTitle,
-  pickPreferredSource,
-  truncateSessionTitle,
-} from "../lib/chatUtils";
+  createSession as createSessionApi,
+  ingestYoutube,
+  sendMessage as sendMessageApi,
+  toUserFacingError,
+} from "../lib/api";
 import { chatReducer, createInitialChatState } from "../state/chatReducer";
-import type { ChatSession } from "../types/chat";
+import type { ChatSession, SourceChip } from "../types/chat";
 
-const PROCESSING_DELAY_MS = 2800;
-const MOCK_REPLY_DELAY_MS = 800;
+const DEFAULT_USER_ID = import.meta.env.VITE_DEFAULT_USER_ID ?? "default_user";
+const DEFAULT_MODEL = import.meta.env.VITE_OPENAI_MODEL ?? "gpt-4o-mini";
 
 export function useChatController() {
   const initialIsLarge = typeof window !== "undefined" ? window.innerWidth >= 1024 : true;
 
   const [state, dispatch] = useReducer(chatReducer, initialIsLarge, createInitialChatState);
-
-  const pendingTimeoutsRef = useRef<number[]>([]);
-
-  const clearPendingTimeouts = useCallback(() => {
-    pendingTimeoutsRef.current.forEach((timeout) => window.clearTimeout(timeout));
-    pendingTimeoutsRef.current = [];
-  }, []);
-
-  const registerTimeout = useCallback((timeoutId: number) => {
-    pendingTimeoutsRef.current.push(timeoutId);
-  }, []);
+  const [isAddingSource, setIsAddingSource] = useState(false);
+  const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [requestError, setRequestError] = useState<string | null>(null);
 
   useEffect(() => {
     const handleResize = () => {
@@ -41,9 +33,8 @@ export function useChatController() {
     window.addEventListener("resize", handleResize);
     return () => {
       window.removeEventListener("resize", handleResize);
-      clearPendingTimeouts();
     };
-  }, [clearPendingTimeouts]);
+  }, []);
 
   const hasReadySource = useMemo(
     () => state.sources.some((source) => source.status === "ready"),
@@ -87,11 +78,14 @@ export function useChatController() {
     dispatch({ type: "SET_CHAT_INPUT", value });
   }, []);
 
-  const addSource = useCallback(() => {
+  const addSource = useCallback(async () => {
     const url = state.urlInput.trim();
-    if (!url) {
+    if (!url || isAddingSource) {
       return;
     }
+
+    setRequestError(null);
+    setIsAddingSource(true);
 
     const sourceId = createId();
     dispatch({
@@ -105,20 +99,33 @@ export function useChatController() {
       },
     });
 
-    const timeoutId = window.setTimeout(() => {
+    try {
+      const result = await ingestYoutube({
+        userId: DEFAULT_USER_ID,
+        url,
+      });
+
       dispatch({
         type: "MARK_SOURCE_READY",
         sourceId,
-        chunks: Math.floor(Math.random() * 60) + 20,
+        chunks: result.chunks_ingested,
+        videoId: result.video_id,
+        title: result.video_title,
       });
-    }, PROCESSING_DELAY_MS);
+    } catch (error) {
+      const message = toUserFacingError(error, "Failed to add source.");
+      dispatch({
+        type: "MARK_SOURCE_ERROR",
+        sourceId,
+        errorMessage: message,
+      });
+      setRequestError(message);
+    } finally {
+      setIsAddingSource(false);
+    }
+  }, [isAddingSource, state.urlInput]);
 
-    registerTimeout(timeoutId);
-  }, [registerTimeout, state.urlInput]);
-
-  const createSession = useCallback((seedText: string) => {
-    const sessionId = createId();
-
+  const createLocalSession = useCallback((sessionId: string, seedText: string) => {
     const session: ChatSession = {
       id: sessionId,
       title: truncateSessionTitle(seedText),
@@ -130,45 +137,84 @@ export function useChatController() {
     return sessionId;
   }, []);
 
-  const sendMessage = useCallback(() => {
+  const sendMessage = useCallback(async () => {
     const userText = state.chatInput.trim();
-    if (!userText || !hasReadySource) {
+    if (!userText || !hasReadySource || isSendingMessage) {
       return;
     }
 
+    setRequestError(null);
+    setIsSendingMessage(true);
     dispatch({ type: "SET_CHAT_INPUT", value: "" });
 
-    const activeSessionId = state.currentSessionId ?? createSession(userText);
+    let activeSessionId = state.currentSessionId;
 
-    dispatch({
-      type: "APPEND_MESSAGE",
-      sessionId: activeSessionId,
-      message: {
-        id: createId(),
-        role: "user",
-        text: userText,
-      },
-    });
+    try {
+      if (!activeSessionId) {
+        const createdSession = await createSessionApi({
+          userId: DEFAULT_USER_ID,
+          model: DEFAULT_MODEL,
+        });
+        activeSessionId = createLocalSession(createdSession.session_id, userText);
+      }
 
-    const preferredSource = pickPreferredSource(state.sources);
+      dispatch({
+        type: "APPEND_MESSAGE",
+        sessionId: activeSessionId,
+        message: {
+          id: createId(),
+          role: "user",
+          text: userText,
+        },
+      });
 
-    const timeoutId = window.setTimeout(() => {
+      const response = await sendMessageApi({
+        sessionId: activeSessionId,
+        message: userText,
+      });
+
+      const chips: SourceChip[] = response.sources.map((source) => ({
+        ts: source.timestamp,
+        title: source.title || "Source",
+        videoId: source.video_id,
+        url: source.url,
+      }));
+
       dispatch({
         type: "APPEND_MESSAGE",
         sessionId: activeSessionId,
         message: {
           id: createId(),
           role: "assistant",
-          text: buildMockAssistantReply(userText),
-          chips: preferredSource
-            ? [{ ts: "12:34", title: preferredSource.title }]
-            : [{ ts: "0:00", title: "Source" }],
+          text: response.reply,
+          chips,
         },
       });
-    }, MOCK_REPLY_DELAY_MS);
+    } catch (error) {
+      const message = toUserFacingError(error, "Failed to send message.");
+      setRequestError(message);
 
-    registerTimeout(timeoutId);
-  }, [createSession, hasReadySource, registerTimeout, state.chatInput, state.currentSessionId, state.sources]);
+      if (activeSessionId) {
+        dispatch({
+          type: "APPEND_MESSAGE",
+          sessionId: activeSessionId,
+          message: {
+            id: createId(),
+            role: "assistant",
+            text: `I hit an error while contacting the backend: ${message}`,
+          },
+        });
+      }
+    } finally {
+      setIsSendingMessage(false);
+    }
+  }, [
+    createLocalSession,
+    hasReadySource,
+    isSendingMessage,
+    state.chatInput,
+    state.currentSessionId,
+  ]);
 
   const startNewChat = useCallback(() => {
     dispatch({ type: "SET_CURRENT_SESSION", sessionId: null });
@@ -180,7 +226,7 @@ export function useChatController() {
   }, [state.isLargeScreen]);
 
   const selectSession = useCallback(
-    (sessionId: number) => {
+    (sessionId: string) => {
       dispatch({ type: "SET_CURRENT_SESSION", sessionId });
       if (!state.isLargeScreen) {
         dispatch({ type: "CLOSE_NAV" });
@@ -202,6 +248,9 @@ export function useChatController() {
     chatInput: state.chatInput,
     sources: state.sources,
     urlInput: state.urlInput,
+    isAddingSource,
+    isSendingMessage,
+    requestError,
     toggleNav,
     toggleDrawer,
     openDrawer,

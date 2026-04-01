@@ -10,6 +10,8 @@ type ChatAreaProps = {
   showEmptyState: boolean;
   messages: ChatMessage[];
   chatInput: string;
+  isSendingMessage: boolean;
+  requestError: string | null;
   onChatInputChange: (value: string) => void;
   onSendMessage: () => void;
   onToggleDrawer: () => void;
@@ -23,6 +25,8 @@ export function ChatArea({
   showEmptyState,
   messages,
   chatInput,
+  isSendingMessage,
+  requestError,
   onChatInputChange,
   onSendMessage,
   onToggleDrawer,
@@ -74,6 +78,12 @@ export function ChatArea({
           Sources
         </button>
       </header>
+
+      {requestError ? (
+        <div className="border-b border-red/40 bg-red/10 px-4 py-2 text-xs text-red lg:px-5">
+          {requestError}
+        </div>
+      ) : null}
 
       {showEmptyState ? (
         <section className="flex flex-1 flex-col items-center justify-center gap-6 px-5 py-8 text-center lg:px-8">
@@ -169,7 +179,7 @@ export function ChatArea({
                 <div className={isUser ? "items-end" : "items-start"}>
                   <div
                     className={[
-                      "max-w-[min(72vw,680px)] rounded-xl border px-3.5 py-2.5 text-[13.5px] leading-[1.65]",
+                      "max-w-[min(72vw,680px)] whitespace-pre-wrap break-words rounded-xl border px-3.5 py-2.5 text-[13.5px] leading-[1.65]",
                       isUser
                         ? "rounded-tr-sm border-accentBorder bg-accentBg text-[#c8ccff]"
                         : "rounded-tl-sm border-border bg-bg2 text-text",
@@ -180,17 +190,38 @@ export function ChatArea({
 
                   {message.chips && message.chips.length > 0 ? (
                     <div className="mt-2 flex flex-wrap gap-1.5">
-                      {message.chips.map((chip, index) => (
-                        <button
-                          key={`${chip.ts}-${chip.title}-${index}`}
-                          type="button"
-                          className="inline-flex items-center gap-1 rounded-full border border-border2 bg-bg3 px-2.5 py-1 font-mono text-[11px] text-text2 transition hover:border-accentBorder hover:text-[#a0aaff]"
-                        >
-                          <span className="font-medium text-accent">{chip.ts}</span>
-                          <span className="h-1 w-1 rounded-full bg-text3" />
-                          <span>{chip.title}</span>
-                        </button>
-                      ))}
+                      {message.chips.map((chip, index) => {
+                        const parts = chip.ts.split(":").map(Number);
+                        const seconds = parts.length === 2 ? parts[0] * 60 + parts[1] : parts[0];
+                        const href = chip.url ? `${chip.url}&t=${seconds}s` : undefined;
+                        const chipClass =
+                          "inline-flex items-center gap-1 rounded-full border border-border2 bg-bg3 px-2.5 py-1 font-mono text-[11px] text-text2 transition hover:border-accentBorder hover:text-[#a0aaff]";
+                        const inner = (
+                          <>
+                            <span className="font-medium text-accent">{chip.ts}</span>
+                            <span className="h-1 w-1 rounded-full bg-text3" />
+                            <span>{chip.title}</span>
+                          </>
+                        );
+                        return href ? (
+                          <a
+                            key={`${chip.ts}-${chip.title}-${index}`}
+                            href={href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={chipClass}
+                          >
+                            {inner}
+                          </a>
+                        ) : (
+                          <span
+                            key={`${chip.ts}-${chip.title}-${index}`}
+                            className={chipClass}
+                          >
+                            {inner}
+                          </span>
+                        );
+                      })}
                     </div>
                   ) : null}
                 </div>
@@ -221,26 +252,30 @@ export function ChatArea({
         <button
           type="button"
           onClick={onSendMessage}
-          disabled={!hasReadySource || chatInput.trim().length === 0}
+          disabled={!hasReadySource || chatInput.trim().length === 0 || isSendingMessage}
           className={[
             "flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition",
-            hasReadySource && chatInput.trim().length > 0
+            hasReadySource && chatInput.trim().length > 0 && !isSendingMessage
               ? "border-accentBorder bg-accentBg text-accent hover:bg-[#5b6af033]"
               : "cursor-not-allowed border-border2 bg-bg2 text-text3 opacity-45",
           ].join(" ")}
         >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 14 14"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M7 11V3M3 7l4-4 4 4" />
-          </svg>
+          {isSendingMessage ? (
+            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+          ) : (
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 14 14"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M7 11V3M3 7l4-4 4 4" />
+            </svg>
+          )}
         </button>
       </footer>
     </main>
