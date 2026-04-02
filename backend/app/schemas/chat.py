@@ -33,13 +33,9 @@ class CreateSessionResponse(BaseModel):
 
 class SessionSummary(BaseModel):
     session_id: str
-    user_id: str
     title: str
     model: str
     created_at: datetime
-    updated_at: datetime
-    last_message_at: datetime | None = None
-    message_count: int
     prompt_tokens_total: int = 0
     completion_tokens_total: int = 0
     total_tokens_total: int = 0
@@ -51,7 +47,6 @@ class SessionMessage(BaseModel):
     content: str
     sources: list[Source] = []
     usage: TokenUsage | None = None
-    created_at: datetime
 
 
 class SessionListResponse(BaseModel):
@@ -75,14 +70,12 @@ class ChatMessageRequest(BaseModel):
 class ChatMessageResponse(BaseModel):
     reply: str
     sources: list[Source]
-    has_context: bool
     usage: TokenUsage | None = None
     thread_usage: TokenUsage | None = None
 
 
 class ChatModelItem(BaseModel):
     id: str
-    label: str
     max_context_tokens: int | None = None
 
 

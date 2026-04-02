@@ -30,7 +30,6 @@ def test_list_sources_returns_catalog_sources(tmp_path, monkeypatch) -> None:
     assert len(payload["sources"]) == 1
     item = payload["sources"][0]
     assert item["source_id"] == "source_abc"
-    assert item["user_id"] == "user_1"
     assert item["source_type"] == "youtube"
     assert item["title"] == "A Video"
     assert item["source_url"] == "https://www.youtube.com/watch?v=abc"
@@ -38,9 +37,6 @@ def test_list_sources_returns_catalog_sources(tmp_path, monkeypatch) -> None:
     assert item["file_id"] is None
     assert item["expected_chunk_count"] == 12
     assert item["sync_status"] == "in_sync"
-    assert item["last_verified_at"] is not None
-    assert item["created_at"] is not None
-    assert item["updated_at"] is not None
 
 
 def test_source_catalog_persists_across_restart(tmp_path) -> None:

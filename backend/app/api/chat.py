@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
+from app.chat.constants import NO_CONTEXT_MESSAGE
 from app.core.config import settings
 from app.schemas.chat import (
     ChatModelItem,
@@ -19,11 +20,6 @@ from app.schemas.chat import (
     SessionSummary,
 )
 from app.services.chat_store import ChatStore, chat_store
-
-NO_CONTEXT_MESSAGE = (
-    "I couldn't find anything relevant to that in your knowledge base. "
-    "Try rephrasing or ask something more specific to your content."
-)
 
 router = APIRouter()
 
@@ -41,13 +37,9 @@ def build_chat_manager(*, model: str, user_id: str):
 def _to_session_summary(session) -> SessionSummary:
     return SessionSummary(
         session_id=session.session_id,
-        user_id=session.user_id,
         title=session.title,
         model=session.model,
         created_at=session.created_at,
-        updated_at=session.updated_at,
-        last_message_at=session.last_message_at,
-        message_count=session.message_count,
         prompt_tokens_total=session.prompt_tokens_total,
         completion_tokens_total=session.completion_tokens_total,
         total_tokens_total=session.total_tokens_total,
@@ -101,7 +93,6 @@ def list_models() -> ChatModelListResponse:
         models=[
             ChatModelItem(
                 id=model,
-                label=model,
                 max_context_tokens=settings.chat_model_context_limits.get(model),
             )
             for model in settings.chat_allowed_models
@@ -170,7 +161,6 @@ def get_session(
                     if m.total_tokens is not None
                     else None
                 ),
-                created_at=m.created_at,
             )
             for m in messages
         ],
@@ -201,7 +191,7 @@ def send_message(
     manager = build_chat_manager(model=session.model, user_id=session.user_id)
 
     try:
-        reply, sources, has_context, usage = manager.answer_question(user_text, history=history)
+        reply, sources, _, usage = manager.answer_question(user_text, history=history)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Chat request failed: {exc}") from exc
 
@@ -227,7 +217,6 @@ def send_message(
     return ChatMessageResponse(
         reply=reply,
         sources=sources,
-        has_context=has_context,
         usage=_to_usage(usage),
         thread_usage=thread_usage,
     )
@@ -329,7 +318,6 @@ def stream_message(
                     "sources": completion_request.sources,
                     "usage": _to_usage(usage_payload),
                     "thread_usage": thread_usage,
-                    "has_context": completion_request.has_context,
                     "assistant_message_id": assistant_message_id,
                 },
             )

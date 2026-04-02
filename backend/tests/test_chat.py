@@ -208,7 +208,6 @@ def test_chat_session_and_message_and_history(tmp_path, monkeypatch) -> None:
     assert message_response.json() == {
         "reply": "Echo: hello",
         "sources": [{"title": "Demo Video", "timestamp": "0:12"}],
-        "has_context": True,
         "usage": {
             "prompt_tokens": 11,
             "completion_tokens": 7,
@@ -226,7 +225,6 @@ def test_chat_session_and_message_and_history(tmp_path, monkeypatch) -> None:
     sessions = list_response.json()["sessions"]
     assert len(sessions) == 1
     assert sessions[0]["session_id"] == session_id
-    assert sessions[0]["message_count"] == 2
     assert sessions[0]["total_tokens_total"] == 18
 
     detail_response = client.get(f"/chat/sessions/{session_id}")
@@ -641,7 +639,6 @@ def test_build_completion_request_keeps_self_contained_query_for_retrieval() -> 
         history=[{"role": "assistant", "content": "We discussed tax loss harvesting."}],
     )
 
-    assert request.retrieval_query == "What does the tax loss harvesting video say about wash sales?"
     assert retriever.queries == [
         "What does the tax loss harvesting video say about wash sales?"
     ]
@@ -660,7 +657,6 @@ def test_build_completion_request_rewrites_follow_up_for_retrieval() -> None:
         ],
     )
 
-    assert request.retrieval_query == "Examples of tax loss harvesting"
     assert retriever.queries == ["Examples of tax loss harvesting"]
     assert request.messages[-1] == {"role": "user", "content": "can u give me examples"}
 
@@ -673,7 +669,6 @@ def test_build_completion_request_normalizes_new_chat_acronym_query_for_retrieva
         history=[],
     )
 
-    assert request.retrieval_query == "can u tell me about large language models"
     assert retriever.queries == ["can u tell me about large language models"]
 
 
@@ -693,7 +688,6 @@ def test_rewrite_failure_falls_back_to_original_user_input() -> None:
         ],
     )
 
-    assert request.retrieval_query == "can u give me examples"
     assert retriever.queries == ["can u give me examples"]
 
 
@@ -893,7 +887,6 @@ def test_chat_api_returns_no_context_and_no_sources_for_unrelated_follow_up(
     )
 
     assert second_response.status_code == 200
-    assert second_response.json()["has_context"] is False
     assert second_response.json()["sources"] == []
     assert "I couldn't find anything relevant" in second_response.json()["reply"]
     assert recorded_retrievers[-1].queries == ["What are large language models?"]
@@ -966,7 +959,6 @@ def test_streaming_chat_returns_no_context_without_sources_for_unrelated_follow_
     completion_payload = next(
         json.loads(payload) for event, payload in events if event == "completion"
     )
-    assert completion_payload["has_context"] is False
     assert completion_payload["sources"] == []
     assert "I couldn't find anything relevant" in completion_payload["reply"]
 

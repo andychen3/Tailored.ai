@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from dotenv import load_dotenv
 from openai import OpenAI
 
+from app.chat.constants import NO_CONTEXT_MESSAGE
 from app.rag.retriever import RAGRetriever
 
 load_dotenv()
@@ -46,11 +47,6 @@ Citation handling:
   - Key concept explanation here.
     [Video Title @ 12:34]"""
 
-NO_CONTEXT_MESSAGE = (
-    "I couldn't find anything relevant to that in your knowledge base. "
-    "Try rephrasing or ask something more specific to your content."
-)
-
 RETRIEVAL_REWRITE_SYSTEM_PROMPT = """Rewrite the user's latest message into a concise standalone search query for retrieval.
 
 Rules:
@@ -68,7 +64,6 @@ class ChatCompletionRequest:
     messages: list[dict[str, str]]
     sources: list[dict]
     has_context: bool
-    retrieval_query: str
 
 
 class ChatManager:
@@ -490,7 +485,6 @@ class ChatManager:
                 messages=[],
                 sources=[],
                 has_context=False,
-                retrieval_query=retrieval_query,
             )
 
         messages, surviving_tags = self._build_messages(
@@ -505,7 +499,6 @@ class ChatManager:
             messages=messages,
             sources=filtered_sources,
             has_context=True,
-            retrieval_query=retrieval_query,
         )
 
     def finalize_answer(self, raw_answer: str, sources: list[dict] | None = None) -> str:

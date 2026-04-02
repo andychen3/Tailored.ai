@@ -17,7 +17,6 @@ def list_sources(user_id: str = Query(...)) -> SourceListResponse:
         sources=[
             SourceListItem(
                 source_id=source.source_id,
-                user_id=source.user_id,
                 source_type=source.source_type,
                 title=source.title,
                 source_url=source.source_url,
@@ -25,9 +24,6 @@ def list_sources(user_id: str = Query(...)) -> SourceListResponse:
                 file_id=source.file_id,
                 expected_chunk_count=source.expected_chunk_count,
                 sync_status=source.sync_status,
-                last_verified_at=source.last_verified_at,
-                created_at=source.created_at,
-                updated_at=source.updated_at,
             )
             for source in sources
         ]
