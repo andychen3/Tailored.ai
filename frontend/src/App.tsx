@@ -20,6 +20,10 @@ function App() {
     isAddingSource,
     isSendingMessage,
     requestError,
+    availableModels,
+    selectedModel,
+    threadTokenUsage,
+    threadTokenLimit,
     toggleNav,
     toggleDrawer,
     openDrawer,
@@ -27,6 +31,7 @@ function App() {
     closePanels,
     setUrlInput,
     setChatInput,
+    setSelectedModel,
     addSource,
     uploadFile,
     sendMessage,
@@ -64,7 +69,13 @@ function App() {
         chatInput={chatInput}
         isSendingMessage={isSendingMessage}
         requestError={requestError}
+        availableModels={availableModels}
+        selectedModel={selectedModel}
+        canSelectModel
+        threadTokenUsage={threadTokenUsage}
+        threadTokenLimit={threadTokenLimit}
         onChatInputChange={setChatInput}
+        onSelectModel={setSelectedModel}
         onSendMessage={sendMessage}
         onToggleDrawer={toggleDrawer}
         onOpenDrawer={openDrawer}

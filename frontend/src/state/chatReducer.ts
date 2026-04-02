@@ -22,6 +22,7 @@ export type ChatAction =
   | { type: "SET_URL_INPUT"; value: string }
   | { type: "SET_CHAT_INPUT"; value: string }
   | { type: "ADD_SOURCE"; source: SourceItem }
+  | { type: "SET_SOURCES"; sources: SourceItem[] }
   | { type: "UPDATE_SOURCE_UPLOAD"; sourceId: number; uploadPercent: number }
   | {
       type: "MARK_SOURCE_QUEUED";
@@ -45,9 +46,25 @@ export type ChatAction =
       sourceType?: SourceType;
     }
   | { type: "MARK_SOURCE_ERROR"; sourceId: number; errorMessage: string }
+  | { type: "SET_SESSIONS"; sessions: ChatSession[]; currentSessionId: string | null }
   | { type: "CREATE_SESSION"; session: ChatSession }
+  | { type: "UPDATE_SESSION_MODEL"; sessionId: string; model: string }
+  | { type: "UPDATE_SESSION_TITLE"; sessionId: string; title: string }
+  | { type: "UPDATE_SESSION_USAGE"; sessionId: string; promptTokens: number; completionTokens: number; totalTokens: number }
   | { type: "SET_CURRENT_SESSION"; sessionId: string | null }
-  | { type: "APPEND_MESSAGE"; sessionId: string; message: ChatMessage };
+  | { type: "SET_SESSION_MESSAGES"; sessionId: string; messages: ChatMessage[] }
+  | { type: "APPEND_MESSAGE"; sessionId: string; message: ChatMessage }
+  | {
+      type: "UPDATE_MESSAGE";
+      sessionId: string;
+      messageId: ChatMessage["id"];
+      patch: Partial<ChatMessage>;
+    }
+  | {
+      type: "REMOVE_MESSAGE";
+      sessionId: string;
+      messageId: ChatMessage["id"];
+    };
 
 export function createInitialChatState(isLargeScreen: boolean): ChatAppState {
   return {
@@ -126,6 +143,12 @@ export function chatReducer(state: ChatAppState, action: ChatAction): ChatAppSta
         urlInput: "",
       };
 
+    case "SET_SOURCES":
+      return {
+        ...state,
+        sources: action.sources,
+      };
+
     case "UPDATE_SOURCE_UPLOAD":
       return {
         ...state,
@@ -188,6 +211,7 @@ export function chatReducer(state: ChatAppState, action: ChatAction): ChatAppSta
                 title: action.title,
                 fileId: action.fileId,
                 sourceType: action.sourceType,
+                syncStatus: "in_sync",
                 uploadPercent: undefined,
                 errorMessage: undefined,
               }
@@ -213,14 +237,80 @@ export function chatReducer(state: ChatAppState, action: ChatAction): ChatAppSta
     case "CREATE_SESSION":
       return {
         ...state,
-        sessions: [action.session, ...state.sessions],
+        sessions: [
+          action.session,
+          ...state.sessions.filter((session) => session.id !== action.session.id),
+        ],
         currentSessionId: action.session.id,
+      };
+
+    case "SET_SESSIONS":
+      return {
+        ...state,
+        sessions: action.sessions,
+        currentSessionId: action.currentSessionId,
+      };
+
+    case "UPDATE_SESSION_TITLE":
+      return {
+        ...state,
+        sessions: state.sessions.map((session) =>
+          session.id === action.sessionId
+            ? {
+                ...session,
+                title: action.title,
+              }
+            : session,
+        ),
+      };
+
+    case "UPDATE_SESSION_MODEL":
+      return {
+        ...state,
+        sessions: state.sessions.map((session) =>
+          session.id === action.sessionId
+            ? {
+                ...session,
+                model: action.model,
+              }
+            : session,
+        ),
+      };
+
+    case "UPDATE_SESSION_USAGE":
+      return {
+        ...state,
+        sessions: state.sessions.map((session) =>
+          session.id === action.sessionId
+            ? {
+                ...session,
+                tokenUsage: {
+                  promptTokens: action.promptTokens,
+                  completionTokens: action.completionTokens,
+                  totalTokens: action.totalTokens,
+                },
+              }
+            : session,
+        ),
       };
 
     case "SET_CURRENT_SESSION":
       return {
         ...state,
         currentSessionId: action.sessionId,
+      };
+
+    case "SET_SESSION_MESSAGES":
+      return {
+        ...state,
+        sessions: state.sessions.map((session) =>
+          session.id === action.sessionId
+            ? {
+                ...session,
+                messages: action.messages,
+              }
+            : session,
+        ),
       };
 
     case "APPEND_MESSAGE":
@@ -231,6 +321,39 @@ export function chatReducer(state: ChatAppState, action: ChatAction): ChatAppSta
             ? {
                 ...session,
                 messages: [...session.messages, action.message],
+              }
+            : session,
+        ),
+      };
+
+    case "UPDATE_MESSAGE":
+      return {
+        ...state,
+        sessions: state.sessions.map((session) =>
+          session.id === action.sessionId
+            ? {
+                ...session,
+                messages: session.messages.map((message) =>
+                  message.id === action.messageId
+                    ? {
+                        ...message,
+                        ...action.patch,
+                      }
+                    : message,
+                ),
+              }
+            : session,
+        ),
+      };
+
+    case "REMOVE_MESSAGE":
+      return {
+        ...state,
+        sessions: state.sessions.map((session) =>
+          session.id === action.sessionId
+            ? {
+                ...session,
+                messages: session.messages.filter((message) => message.id !== action.messageId),
               }
             : session,
         ),

@@ -1,12 +1,15 @@
 export type SourceStatus = "uploading" | "queued" | "processing" | "ready" | "error";
 export type SourceType = "youtube" | "video_file" | "pdf" | "text";
+export type SourceSyncStatus = "in_sync" | "missing" | "unknown";
 
 export interface SourceItem {
   id: number;
+  sourceId?: string;
   url: string;
   title: string;
   status: SourceStatus;
   chunks: number;
+  syncStatus?: SourceSyncStatus;
   errorMessage?: string;
   videoId?: string;
   fileId?: string;
@@ -23,18 +26,28 @@ export interface SourceChip {
   pageNumber?: number;
 }
 
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
 export type MessageRole = "user" | "assistant";
 
 export interface ChatMessage {
-  id: number;
+  id: number | string;
   role: MessageRole;
   text: string;
   chips?: SourceChip[];
+  usage?: TokenUsage;
+  isStreaming?: boolean;
 }
 
 export interface ChatSession {
   id: string;
   title: string;
+  model: string;
   createdAtLabel: string;
+  tokenUsage: TokenUsage;
   messages: ChatMessage[];
 }

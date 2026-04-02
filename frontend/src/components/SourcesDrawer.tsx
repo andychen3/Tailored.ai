@@ -37,6 +37,14 @@ function getSourceStatusText(source: SourceItem): string {
     return "Failed";
   }
 
+  if (source.syncStatus === "missing") {
+    return "Needs reindex";
+  }
+
+  if (source.syncStatus === "unknown") {
+    return "Sync unknown";
+  }
+
   return `Ready · ${source.chunks} chunks`;
 }
 
@@ -188,12 +196,13 @@ export function SourcesDrawer({
             <div className="mt-2 space-y-1.5">
               {sources.map((source) => {
                 const isReady = source.status === "ready";
+                const isMissing = source.syncStatus === "missing";
                 return (
                   <article
                     key={source.id}
                     className={[
                       "rounded-card border px-3 py-2.5 transition",
-                      isReady
+                      isReady && !isMissing
                         ? "border-accentBorder bg-accentBg"
                         : "border-border bg-bg3 hover:border-border2",
                     ].join(" ")}
@@ -201,7 +210,7 @@ export function SourcesDrawer({
                     <div
                       className={[
                         "truncate text-xs font-medium",
-                        isReady ? "text-[#c8ccff]" : "text-text",
+                        isReady && !isMissing ? "text-[#c8ccff]" : "text-text",
                       ].join(" ")}
                     >
                       {source.title}
@@ -210,7 +219,7 @@ export function SourcesDrawer({
                     <div
                       className={[
                         "mt-0.5 truncate text-[11px]",
-                        isReady ? "text-[#a0aaff99]" : "text-text3",
+                        isReady && !isMissing ? "text-[#a0aaff99]" : "text-text3",
                       ].join(" ")}
                     >
                       {source.url}
@@ -224,6 +233,8 @@ export function SourcesDrawer({
                           source.status === "queued" ||
                           source.status === "processing"
                             ? "animate-pulseSoft bg-amber"
+                            : source.syncStatus === "missing"
+                              ? "bg-red"
                             : source.status === "error"
                               ? "bg-red"
                               : "bg-green",
@@ -237,6 +248,8 @@ export function SourcesDrawer({
                           source.status === "queued" ||
                           source.status === "processing"
                             ? "text-amber"
+                            : source.syncStatus === "missing"
+                              ? "text-red"
                             : source.status === "error"
                               ? "text-red"
                               : "text-green",

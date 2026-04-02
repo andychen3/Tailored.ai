@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 
 import { EMPTY_STATE_CONTENT, EMPTY_STATE_STEPS } from "../constants/chatUi";
-import type { ChatMessage } from "../types/chat";
+import type { ChatMessage, TokenUsage } from "../types/chat";
 
 type ChatAreaProps = {
   title: string;
@@ -12,7 +12,13 @@ type ChatAreaProps = {
   chatInput: string;
   isSendingMessage: boolean;
   requestError: string | null;
+  availableModels: string[];
+  selectedModel: string;
+  canSelectModel: boolean;
+  threadTokenUsage: TokenUsage;
+  threadTokenLimit: number | null;
   onChatInputChange: (value: string) => void;
+  onSelectModel: (model: string) => void;
   onSendMessage: () => void;
   onToggleDrawer: () => void;
   onOpenDrawer: () => void;
@@ -27,7 +33,13 @@ export function ChatArea({
   chatInput,
   isSendingMessage,
   requestError,
+  availableModels,
+  selectedModel,
+  canSelectModel,
+  threadTokenUsage,
+  threadTokenLimit,
   onChatInputChange,
+  onSelectModel,
   onSendMessage,
   onToggleDrawer,
   onOpenDrawer,
@@ -43,40 +55,65 @@ export function ChatArea({
   return (
     <main className="flex min-w-0 flex-1 flex-col bg-bg">
       <header className="flex h-[58px] items-center justify-between gap-3 border-b border-border px-4 lg:px-5">
-        <h1
-          className={[
-            "truncate text-sm font-medium",
-            showEmptyState ? "text-text2" : "text-text",
-          ].join(" ")}
-        >
-          {title}
-        </h1>
-
-        <button
-          type="button"
-          onClick={onToggleDrawer}
-          className={[
-            "flex items-center gap-1.5 rounded-card border px-3 py-1.5 text-xs transition",
-            isDrawerOpen
-              ? "border-accentBorder bg-accentBg text-[#a0aaff]"
-              : "border-border2 bg-bg2 text-text2 hover:bg-bg3 hover:text-text",
-          ].join(" ")}
-        >
-          <svg
-            width="13"
-            height="13"
-            viewBox="0 0 14 14"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+        <div className="min-w-0">
+          <h1
+            className={[
+              "truncate text-sm font-medium",
+              showEmptyState ? "text-text2" : "text-text",
+            ].join(" ")}
           >
-            <rect x="2" y="2" width="10" height="10" rx="2" />
-            <path d="M2 6h10M6 6v6" />
-          </svg>
-          Sources
-        </button>
+            {title}
+          </h1>
+          <div className="mt-0.5 text-[11px] text-text3">
+            {threadTokenLimit != null
+              ? `Thread tokens: ${threadTokenUsage.totalTokens.toLocaleString()} used / ${Math.max(
+                  threadTokenLimit - threadTokenUsage.totalTokens,
+                  0
+                ).toLocaleString()} left (${((threadTokenUsage.totalTokens / threadTokenLimit) * 100).toFixed(1)}% used)`
+              : `Thread tokens: ${threadTokenUsage.totalTokens.toLocaleString()}`}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <select
+            value={selectedModel}
+            onChange={(event) => onSelectModel(event.target.value)}
+            disabled={!canSelectModel}
+            className="h-8 rounded-card border border-border2 bg-bg2 px-2.5 text-xs text-text outline-none transition focus:border-accentBorder disabled:cursor-not-allowed disabled:opacity-55"
+          >
+            {availableModels.map((model) => (
+              <option key={model} value={model}>
+                {model}
+              </option>
+            ))}
+          </select>
+
+          <button
+            type="button"
+            onClick={onToggleDrawer}
+            className={[
+              "flex items-center gap-1.5 rounded-card border px-3 py-1.5 text-xs transition",
+              isDrawerOpen
+                ? "border-accentBorder bg-accentBg text-[#a0aaff]"
+                : "border-border2 bg-bg2 text-text2 hover:bg-bg3 hover:text-text",
+            ].join(" ")}
+          >
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 14 14"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="2" y="2" width="10" height="10" rx="2" />
+              <path d="M2 6h10M6 6v6" />
+            </svg>
+            Sources
+          </button>
+        </div>
       </header>
 
       {requestError ? (
@@ -156,6 +193,7 @@ export function ChatArea({
         >
           {messages.map((message) => {
             const isUser = message.role === "user";
+            const isStreaming = Boolean(message.isStreaming);
 
             return (
               <article
@@ -183,10 +221,20 @@ export function ChatArea({
                       isUser
                         ? "rounded-tr-sm border-accentBorder bg-accentBg text-[#c8ccff]"
                         : "rounded-tl-sm border-border bg-bg2 text-text",
+                      isStreaming ? "opacity-85" : "",
                     ].join(" ")}
                   >
-                    {message.text}
+                    {message.text || (!isUser && isStreaming ? "Thinking..." : "")}
+                    {!isUser && isStreaming ? (
+                      <span className="ml-1 inline-block animate-pulse text-text3">▍</span>
+                    ) : null}
                   </div>
+
+                  {message.usage ? (
+                    <div className="mt-1 text-[10px] text-text3">
+                      Tokens: {message.usage.totalTokens.toLocaleString()} (prompt {message.usage.promptTokens.toLocaleString()} / completion {message.usage.completionTokens.toLocaleString()})
+                    </div>
+                  ) : null}
 
                   {message.chips && message.chips.length > 0 ? (
                     <div className="mt-2 flex flex-wrap gap-1.5">
