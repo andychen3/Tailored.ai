@@ -4,6 +4,7 @@ import { DEFAULT_SESSION_TITLE } from "../constants/chatUi";
 import { createId, detectSourceTitle, truncateSessionTitle } from "../lib/chatUtils";
 import {
   createSession as createSessionApi,
+  deleteSession as deleteSessionApi,
   getSession as getSessionApi,
   getIngestJob,
   ingestFile,
@@ -62,6 +63,7 @@ export function useChatController() {
   const [state, dispatch] = useReducer(chatReducer, initialIsLarge, createInitialChatState);
   const [isAddingSource, setIsAddingSource] = useState(false);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [requestError, setRequestError] = useState<string | null>(null);
   const [availableModels, setAvailableModels] = useState<string[]>([DEFAULT_MODEL]);
   const [modelTokenLimits, setModelTokenLimits] = useState<Record<string, number>>({});
@@ -258,10 +260,6 @@ export function useChatController() {
 
   const toggleDrawer = useCallback(() => {
     dispatch({ type: "TOGGLE_DRAWER" });
-  }, []);
-
-  const openDrawer = useCallback(() => {
-    dispatch({ type: "OPEN_DRAWER" });
   }, []);
 
   const closeDrawer = useCallback(() => {
@@ -675,6 +673,58 @@ export function useChatController() {
     [loadSessionMessages, state.isLargeScreen],
   );
 
+  const deleteSession = useCallback(
+    async (sessionId: string) => {
+      const targetIndex = state.sessions.findIndex((session) => session.id === sessionId);
+      if (targetIndex === -1 || deletingSessionId) {
+        return;
+      }
+
+      const confirmed = window.confirm("Delete this conversation? This cannot be undone.");
+      if (!confirmed) {
+        return;
+      }
+
+      setRequestError(null);
+      setDeletingSessionId(sessionId);
+
+      const nextCandidate =
+        state.sessions[targetIndex + 1]?.id ??
+        state.sessions[targetIndex - 1]?.id ??
+        null;
+      const isActiveSession = state.currentSessionId === sessionId;
+
+      try {
+        await deleteSessionApi(sessionId);
+        dispatch({
+          type: "DELETE_SESSION",
+          sessionId,
+          nextSessionId: isActiveSession ? nextCandidate : state.currentSessionId,
+        });
+
+        if (isActiveSession && nextCandidate) {
+          await loadSessionMessages(nextCandidate);
+        }
+
+        if (!state.isLargeScreen && state.sessions.length === 1) {
+          dispatch({ type: "CLOSE_NAV" });
+        }
+      } catch (error) {
+        const message = toUserFacingError(error, "Failed to delete chat thread.");
+        setRequestError(message);
+      } finally {
+        setDeletingSessionId(null);
+      }
+    },
+    [
+      deletingSessionId,
+      loadSessionMessages,
+      state.currentSessionId,
+      state.isLargeScreen,
+      state.sessions,
+    ],
+  );
+
   return {
     isLargeScreen: state.isLargeScreen,
     isNavOpen: state.isNavOpen,
@@ -690,6 +740,7 @@ export function useChatController() {
     urlInput: state.urlInput,
     isAddingSource,
     isSendingMessage,
+    deletingSessionId,
     requestError,
     availableModels,
     selectedModel,
@@ -698,7 +749,6 @@ export function useChatController() {
     threadTokenLimit,
     toggleNav,
     toggleDrawer,
-    openDrawer,
     closeDrawer,
     closePanels,
     setUrlInput,
@@ -708,5 +758,6 @@ export function useChatController() {
     sendMessage,
     startNewChat,
     selectSession,
+    deleteSession,
   };
 }

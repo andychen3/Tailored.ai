@@ -16,7 +16,6 @@ export type ChatAction =
   | { type: "TOGGLE_NAV" }
   | { type: "CLOSE_NAV" }
   | { type: "TOGGLE_DRAWER" }
-  | { type: "OPEN_DRAWER" }
   | { type: "CLOSE_DRAWER" }
   | { type: "CLOSE_PANELS" }
   | { type: "SET_URL_INPUT"; value: string }
@@ -48,6 +47,7 @@ export type ChatAction =
   | { type: "MARK_SOURCE_ERROR"; sourceId: number; errorMessage: string }
   | { type: "SET_SESSIONS"; sessions: ChatSession[]; currentSessionId: string | null }
   | { type: "CREATE_SESSION"; session: ChatSession }
+  | { type: "DELETE_SESSION"; sessionId: string; nextSessionId: string | null }
   | { type: "UPDATE_SESSION_MODEL"; sessionId: string; model: string }
   | { type: "UPDATE_SESSION_TITLE"; sessionId: string; title: string }
   | { type: "UPDATE_SESSION_USAGE"; sessionId: string; promptTokens: number; completionTokens: number; totalTokens: number }
@@ -103,12 +103,6 @@ export function chatReducer(state: ChatAppState, action: ChatAction): ChatAppSta
       return {
         ...state,
         isDrawerOpen: !state.isDrawerOpen,
-      };
-
-    case "OPEN_DRAWER":
-      return {
-        ...state,
-        isDrawerOpen: true,
       };
 
     case "CLOSE_DRAWER":
@@ -249,6 +243,16 @@ export function chatReducer(state: ChatAppState, action: ChatAction): ChatAppSta
         ...state,
         sessions: action.sessions,
         currentSessionId: action.currentSessionId,
+      };
+
+    case "DELETE_SESSION":
+      return {
+        ...state,
+        sessions: state.sessions.filter((session) => session.id !== action.sessionId),
+        currentSessionId:
+          state.currentSessionId === action.sessionId
+            ? action.nextSessionId
+            : state.currentSessionId,
       };
 
     case "UPDATE_SESSION_TITLE":

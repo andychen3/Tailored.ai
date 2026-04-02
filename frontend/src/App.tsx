@@ -19,6 +19,7 @@ function App() {
     urlInput,
     isAddingSource,
     isSendingMessage,
+    deletingSessionId,
     requestError,
     availableModels,
     selectedModel,
@@ -26,7 +27,6 @@ function App() {
     threadTokenLimit,
     toggleNav,
     toggleDrawer,
-    openDrawer,
     closeDrawer,
     closePanels,
     setUrlInput,
@@ -37,6 +37,7 @@ function App() {
     sendMessage,
     startNewChat,
     selectSession,
+    deleteSession,
   } = useChatController();
 
   return (
@@ -55,9 +56,11 @@ function App() {
         canStartChat={hasReadySource}
         sessions={sessions}
         currentSessionId={currentSessionId}
+        deletingSessionId={deletingSessionId}
         onToggle={toggleNav}
         onNewChat={startNewChat}
         onSelectSession={selectSession}
+        onDeleteSession={deleteSession}
       />
 
       <ChatArea
@@ -78,7 +81,6 @@ function App() {
         onSelectModel={setSelectedModel}
         onSendMessage={sendMessage}
         onToggleDrawer={toggleDrawer}
-        onOpenDrawer={openDrawer}
       />
 
       <SourcesDrawer

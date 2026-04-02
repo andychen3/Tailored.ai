@@ -173,6 +173,12 @@ export async function getSession(sessionId: string): Promise<SessionDetailResult
   });
 }
 
+export async function deleteSession(sessionId: string): Promise<void> {
+  await request<{ success: boolean }>(`/chat/sessions/${sessionId}`, {
+    method: "DELETE",
+  });
+}
+
 export type SendMessagePayload = {
   sessionId: string;
   message: string;
@@ -458,7 +464,23 @@ export async function ingestFile(
 
   for (let i = 0; i < totalChunks; i++) {
     const start = i * CHUNK_SIZE_BYTES;
-    const blob = file.slice(start, start + CHUNK_SIZE_BYTES);
+    const slice = file.slice(start, start + CHUNK_SIZE_BYTES);
+
+    // Read slice into memory — validates readability (catches OneDrive/iCloud
+    // cloud-only placeholders) and converts to a memory-backed Blob which
+    // avoids Chrome's cross-origin file.slice() issue.
+    let blob: Blob;
+    try {
+      blob = new Blob([await slice.arrayBuffer()]);
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "NotReadableError") {
+        throw new ApiError(
+          "This file could not be read. If it is stored in OneDrive or iCloud, download it locally first, then try again.",
+          0,
+        );
+      }
+      throw e;
+    }
 
     const form = new FormData();
     form.append("upload_id", uploadId);

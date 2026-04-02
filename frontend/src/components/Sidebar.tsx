@@ -5,9 +5,11 @@ type SidebarProps = {
   canStartChat: boolean;
   sessions: ChatSession[];
   currentSessionId: string | null;
+  deletingSessionId: string | null;
   onToggle: () => void;
   onNewChat: () => void;
   onSelectSession: (sessionId: string) => void;
+  onDeleteSession: (sessionId: string) => void;
 };
 
 export function Sidebar({
@@ -15,9 +17,11 @@ export function Sidebar({
   canStartChat,
   sessions,
   currentSessionId,
+  deletingSessionId,
   onToggle,
   onNewChat,
   onSelectSession,
+  onDeleteSession,
 }: SidebarProps) {
   return (
     <aside
@@ -127,52 +131,101 @@ export function Sidebar({
         ) : (
           sessions.map((session) => {
             const active = session.id === currentSessionId;
+            const isDeleting = deletingSessionId === session.id;
             return (
-              <button
+              <div
                 key={session.id}
                 className={[
-                  "flex w-full items-center gap-2 rounded-card border p-2 text-left transition",
+                  "group flex items-center gap-2 rounded-card border p-2 transition",
                   active
                     ? "border-border bg-bg3"
                     : "border-transparent hover:bg-bg3",
                 ].join(" ")}
-                onClick={() => onSelectSession(session.id)}
-                type="button"
               >
-                <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-accentBorder bg-accentBg">
-                  <svg
-                    width="10"
-                    height="10"
-                    viewBox="0 0 10 10"
-                    fill="none"
-                    stroke="#a0aaff"
-                    strokeWidth="1.4"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M1 5h8M5 1l4 4-4 4" />
-                  </svg>
-                </div>
-
-                <div
-                  className={[
-                    "min-w-0 transition-all",
-                    isOpen ? "opacity-100" : "w-0 overflow-hidden opacity-0",
-                  ].join(" ")}
+                <button
+                  className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                  onClick={() => onSelectSession(session.id)}
+                  type="button"
                 >
+                  <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-accentBorder bg-accentBg">
+                    <svg
+                      width="10"
+                      height="10"
+                      viewBox="0 0 10 10"
+                      fill="none"
+                      stroke="#a0aaff"
+                      strokeWidth="1.4"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M1 5h8M5 1l4 4-4 4" />
+                    </svg>
+                  </div>
+
                   <div
                     className={[
-                      "truncate text-xs font-medium",
-                      active ? "text-[#a0aaff]" : "text-text",
+                      "min-w-0 transition-all",
+                      isOpen ? "opacity-100" : "w-0 overflow-hidden opacity-0",
                     ].join(" ")}
                   >
-                    {session.title}
+                    <div
+                      className={[
+                        "truncate text-xs font-medium",
+                        active ? "text-[#a0aaff]" : "text-text",
+                      ].join(" ")}
+                    >
+                      {session.title}
+                    </div>
+                    <div className="truncate text-[11px] text-text3">
+                      {session.createdAtLabel}
+                    </div>
                   </div>
-                  <div className="truncate text-[11px] text-text3">
-                    {session.createdAtLabel}
-                  </div>
-                </div>
-              </button>
+                </button>
+
+                {isOpen ? (
+                  <button
+                    type="button"
+                    aria-label={`Delete ${session.title}`}
+                    disabled={isDeleting}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onDeleteSession(session.id);
+                    }}
+                    className={[
+                      "flex h-7 w-7 shrink-0 items-center justify-center rounded-md border transition",
+                      isDeleting
+                        ? "cursor-not-allowed border-border2 bg-bg2 text-text3 opacity-50"
+                        : [
+                            "border-border2 bg-transparent text-text3",
+                            "hover:border-red/40 hover:bg-red/10 hover:text-red",
+                            active
+                              ? "opacity-75"
+                              : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
+                          ].join(" "),
+                    ].join(" ")}
+                  >
+                    {isDeleting ? (
+                      <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    ) : (
+                      <svg
+                        width="10"
+                        height="10"
+                        viewBox="0 0 12 12"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M2.5 3.2h7" />
+                        <path d="M4.2 3.2V2.3h3.6v0.9" />
+                        <path d="M3.5 4.2v4.3a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1V4.2" />
+                        <path d="M5 5.2v2.8M7 5.2v2.8" />
+                      </svg>
+                    )}
+                  </button>
+                ) : null}
+              </div>
             );
           })
         )}

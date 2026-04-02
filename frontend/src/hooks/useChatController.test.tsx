@@ -39,6 +39,7 @@ function createDeferred() {
 
 const apiMocks = vi.hoisted(() => ({
   createSession: vi.fn(),
+  deleteSession: vi.fn(),
   getSession: vi.fn(),
   getIngestJob: vi.fn(),
   ingestFile: vi.fn(),
@@ -62,6 +63,7 @@ import * as api from "../lib/api";
 
 const mockedApi = api as unknown as {
   createSession: typeof apiMocks.createSession;
+  deleteSession: typeof apiMocks.deleteSession;
   getSession: typeof apiMocks.getSession;
   getIngestJob: typeof apiMocks.getIngestJob;
   ingestFile: typeof apiMocks.ingestFile;
@@ -83,6 +85,7 @@ describe("useChatController streaming lifecycle", () => {
       model: "gpt-4o-mini",
       created_at: "2026-04-01T12:00:00.000Z",
     });
+    mockedApi.deleteSession.mockResolvedValue(undefined);
     mockedApi.getSession.mockImplementation(async (sessionId: string) => {
       if (sessionId === "session_2") {
         return {
@@ -576,6 +579,148 @@ describe("useChatController streaming lifecycle", () => {
       expect(result.current.sessions.find((session) => session.id === "session_2")?.model).toBe(
         "gpt-4o",
       );
+    });
+  });
+
+  it("deletes a non-active session and keeps the current selection", async () => {
+    mockedApi.listSessions.mockResolvedValue([
+      {
+        session_id: "session_1",
+        user_id: "default_user",
+        title: "Hello",
+        model: "gpt-4o-mini",
+        created_at: "2026-04-01T12:00:00.000Z",
+        updated_at: "2026-04-01T12:00:00.000Z",
+        last_message_at: "2026-04-01T12:00:01.000Z",
+        message_count: 2,
+        prompt_tokens_total: 11,
+        completion_tokens_total: 7,
+        total_tokens_total: 18,
+      },
+      {
+        session_id: "session_2",
+        user_id: "default_user",
+        title: "Second thread",
+        model: "gpt-4o-mini",
+        created_at: "2026-04-01T13:00:00.000Z",
+        updated_at: "2026-04-01T13:00:00.000Z",
+        last_message_at: "2026-04-01T13:00:01.000Z",
+        message_count: 2,
+        prompt_tokens_total: 5,
+        completion_tokens_total: 9,
+        total_tokens_total: 14,
+      },
+    ]);
+
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const { result } = renderHook(() => useChatController());
+
+    await waitFor(() => {
+      expect(result.current.currentSessionId).toBe("session_1");
+      expect(result.current.sessions).toHaveLength(2);
+    });
+
+    act(() => {
+      void result.current.deleteSession("session_2");
+    });
+
+    await waitFor(() => {
+      expect(mockedApi.deleteSession).toHaveBeenCalledWith("session_2");
+      expect(result.current.sessions.map((session) => session.id)).toEqual(["session_1"]);
+    });
+
+    expect(result.current.currentSessionId).toBe("session_1");
+    expect(mockedApi.getSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("deletes the active session and selects the next remaining session", async () => {
+    mockedApi.listSessions.mockResolvedValue([
+      {
+        session_id: "session_1",
+        user_id: "default_user",
+        title: "Hello",
+        model: "gpt-4o-mini",
+        created_at: "2026-04-01T12:00:00.000Z",
+        updated_at: "2026-04-01T12:00:00.000Z",
+        last_message_at: "2026-04-01T12:00:01.000Z",
+        message_count: 2,
+        prompt_tokens_total: 11,
+        completion_tokens_total: 7,
+        total_tokens_total: 18,
+      },
+      {
+        session_id: "session_2",
+        user_id: "default_user",
+        title: "Second thread",
+        model: "gpt-4o-mini",
+        created_at: "2026-04-01T13:00:00.000Z",
+        updated_at: "2026-04-01T13:00:00.000Z",
+        last_message_at: "2026-04-01T13:00:01.000Z",
+        message_count: 2,
+        prompt_tokens_total: 5,
+        completion_tokens_total: 9,
+        total_tokens_total: 14,
+      },
+    ]);
+
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const { result } = renderHook(() => useChatController());
+
+    await waitFor(() => {
+      expect(result.current.currentSessionId).toBe("session_1");
+      expect(result.current.chatMessages[1]?.text).toBe("First thread answer");
+    });
+
+    act(() => {
+      void result.current.deleteSession("session_1");
+    });
+
+    await waitFor(() => {
+      expect(result.current.currentSessionId).toBe("session_2");
+      expect(result.current.sessions.map((session) => session.id)).toEqual(["session_2"]);
+      expect(result.current.chatMessages[1]?.text).toBe("Second thread answer");
+    });
+
+    expect(mockedApi.getSession).toHaveBeenCalledWith("session_2");
+  });
+
+  it("deletes the last remaining session and falls back to the empty state", async () => {
+    mockedApi.listSessions.mockResolvedValue([
+      {
+        session_id: "session_1",
+        user_id: "default_user",
+        title: "Hello",
+        model: "gpt-4o-mini",
+        created_at: "2026-04-01T12:00:00.000Z",
+        updated_at: "2026-04-01T12:00:00.000Z",
+        last_message_at: "2026-04-01T12:00:01.000Z",
+        message_count: 2,
+        prompt_tokens_total: 11,
+        completion_tokens_total: 7,
+        total_tokens_total: 18,
+      },
+    ]);
+
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const { result } = renderHook(() => useChatController());
+
+    await waitFor(() => {
+      expect(result.current.currentSessionId).toBe("session_1");
+      expect(result.current.sessions).toHaveLength(1);
+    });
+
+    act(() => {
+      void result.current.deleteSession("session_1");
+    });
+
+    await waitFor(() => {
+      expect(result.current.sessions).toHaveLength(0);
+      expect(result.current.currentSessionId).toBeNull();
+      expect(result.current.chatMessages).toEqual([]);
+      expect(result.current.showEmptyState).toBe(true);
     });
   });
 });

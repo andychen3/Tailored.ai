@@ -21,7 +21,6 @@ type ChatAreaProps = {
   onSelectModel: (model: string) => void;
   onSendMessage: () => void;
   onToggleDrawer: () => void;
-  onOpenDrawer: () => void;
 };
 
 export function ChatArea({
@@ -42,7 +41,6 @@ export function ChatArea({
   onSelectModel,
   onSendMessage,
   onToggleDrawer,
-  onOpenDrawer,
 }: ChatAreaProps) {
   const messagesRef = useRef<HTMLDivElement>(null);
 
@@ -165,26 +163,6 @@ export function ChatArea({
             ))}
           </div>
 
-          <button
-            type="button"
-            onClick={onOpenDrawer}
-            className="flex items-center gap-2 rounded-card border border-accentBorder bg-accentBg px-5 py-2.5 text-sm text-[#a0aaff] transition hover:border-[#7580ff] hover:bg-[#5b6af033]"
-          >
-            <svg
-              width="13"
-              height="13"
-              viewBox="0 0 14 14"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.3"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <rect x="2" y="2" width="10" height="10" rx="2" />
-              <path d="M2 6h10M6 6v6" />
-            </svg>
-            Open sources panel
-          </button>
         </section>
       ) : (
         <section
