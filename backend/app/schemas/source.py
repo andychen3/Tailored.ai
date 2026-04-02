@@ -24,3 +24,7 @@ class SourceListItem(BaseModel):
 
 class SourceListResponse(BaseModel):
     sources: list[SourceListItem]
+
+
+class DeleteSourceResponse(BaseModel):
+    success: bool

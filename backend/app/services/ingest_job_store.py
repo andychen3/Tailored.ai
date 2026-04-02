@@ -24,6 +24,7 @@ class IngestJob:
     started_at: datetime | None = None
     finished_at: datetime | None = None
     error_message: str | None = None
+    source_id: str | None = None
     file_id: str | None = None
     chunks_ingested: int | None = None
 
@@ -132,6 +133,7 @@ class IngestJobStore:
                 return
             now = datetime.now(UTC)
             job.status = "ready"
+            job.source_id = result.source_id
             job.file_id = result.file_id
             job.file_name = result.file_name
             job.chunks_ingested = result.chunks_ingested

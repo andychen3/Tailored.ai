@@ -38,6 +38,7 @@ export type ChatAction =
   | {
       type: "MARK_SOURCE_READY";
       sourceId: number;
+      persistentSourceId?: string;
       chunks: number;
       videoId?: string;
       title: string;
@@ -45,6 +46,7 @@ export type ChatAction =
       sourceType?: SourceType;
     }
   | { type: "MARK_SOURCE_ERROR"; sourceId: number; errorMessage: string }
+  | { type: "REMOVE_SOURCE"; sourceId: number }
   | { type: "SET_SESSIONS"; sessions: ChatSession[]; currentSessionId: string | null }
   | { type: "CREATE_SESSION"; session: ChatSession }
   | { type: "DELETE_SESSION"; sessionId: string; nextSessionId: string | null }
@@ -199,6 +201,7 @@ export function chatReducer(state: ChatAppState, action: ChatAction): ChatAppSta
           source.id === action.sourceId
             ? {
                 ...source,
+                sourceId: action.persistentSourceId ?? source.sourceId,
                 status: "ready",
                 chunks: action.chunks,
                 videoId: action.videoId,
@@ -226,6 +229,12 @@ export function chatReducer(state: ChatAppState, action: ChatAction): ChatAppSta
               }
             : source,
         ),
+      };
+
+    case "REMOVE_SOURCE":
+      return {
+        ...state,
+        sources: state.sources.filter((source) => source.id !== action.sourceId),
       };
 
     case "CREATE_SESSION":

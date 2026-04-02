@@ -1,6 +1,9 @@
+import logging
 import os
 from dotenv import load_dotenv
 from pinecone import Pinecone, IndexEmbed
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -20,8 +23,8 @@ if not pc.has_index(INDEX_NAME):
             field_map={"text": "chunk_text"},
         ),
     )
-    print(f"Created new Pinecone index: {INDEX_NAME}")
+    logger.info("Created new Pinecone index: %s", INDEX_NAME)
 else:
-    print(f"Connected to existing Pinecone index: {INDEX_NAME}")
+    logger.info("Connected to existing Pinecone index: %s", INDEX_NAME)
 
 index = pc.Index(INDEX_NAME)

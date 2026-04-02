@@ -1,67 +1,30 @@
 import { useRef } from "react";
 import type { SourceItem } from "../types/chat";
+import { canDeleteSource } from "../lib/chatUtils";
+import { getSourceStatusText, getProgressWidth } from "../lib/sourceFormatters";
 
 type SourcesDrawerProps = {
   isOpen: boolean;
   sources: SourceItem[];
   urlInput: string;
   isAddingSource: boolean;
+  deletingSourceId: string | null;
   onUrlInputChange: (value: string) => void;
   onAddSource: () => void;
+  onDeleteSource: (sourceId: number) => void;
   onUploadFile: (file: File) => void;
   onClose: () => void;
 };
-
-function getSourceStatusText(source: SourceItem): string {
-  if (source.status === "uploading") {
-    return source.uploadPercent != null
-      ? `Uploading... ${source.uploadPercent}%`
-      : "Uploading...";
-  }
-
-  if (source.status === "queued") {
-    return "Queued...";
-  }
-
-  if (source.status === "processing") {
-    if (source.sourceType === "video_file") {
-      return "Transcribing...";
-    }
-    if (source.sourceType === "pdf" || source.sourceType === "text") {
-      return "Indexing...";
-    }
-    return "Processing...";
-  }
-
-  if (source.status === "error") {
-    return "Failed";
-  }
-
-  if (source.syncStatus === "missing") {
-    return "Needs reindex";
-  }
-
-  if (source.syncStatus === "unknown") {
-    return "Sync unknown";
-  }
-
-  return `Ready · ${source.chunks} chunks`;
-}
-
-function getProgressWidth(source: SourceItem): string {
-  if (source.status === "uploading" && source.uploadPercent != null) {
-    return `${Math.max(source.uploadPercent, 8)}%`;
-  }
-  return "60%";
-}
 
 export function SourcesDrawer({
   isOpen,
   sources,
   urlInput,
   isAddingSource,
+  deletingSourceId,
   onUrlInputChange,
   onAddSource,
+  onDeleteSource,
   onUploadFile,
   onClose,
 }: SourcesDrawerProps) {
@@ -197,23 +160,69 @@ export function SourcesDrawer({
               {sources.map((source) => {
                 const isReady = source.status === "ready";
                 const isMissing = source.syncStatus === "missing";
+                const isDeleting = deletingSourceId === source.sourceId;
+                const canDelete = canDeleteSource(source);
                 return (
                   <article
                     key={source.id}
                     className={[
-                      "rounded-card border px-3 py-2.5 transition",
+                      "group rounded-card border px-3 py-2.5 transition",
                       isReady && !isMissing
                         ? "border-accentBorder bg-accentBg"
                         : "border-border bg-bg3 hover:border-border2",
                     ].join(" ")}
                   >
-                    <div
-                      className={[
-                        "truncate text-xs font-medium",
-                        isReady && !isMissing ? "text-[#c8ccff]" : "text-text",
-                      ].join(" ")}
-                    >
-                      {source.title}
+                    <div className="flex items-start justify-between gap-2">
+                      <div
+                        className={[
+                          "min-w-0 truncate text-xs font-medium",
+                          isReady && !isMissing ? "text-[#c8ccff]" : "text-text",
+                        ].join(" ")}
+                      >
+                        {source.title}
+                      </div>
+
+                      {canDelete ? (
+                        <button
+                          type="button"
+                          aria-label={`Delete ${source.title}`}
+                          disabled={isDeleting}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onDeleteSource(source.id);
+                          }}
+                          className={[
+                            "flex h-6 w-6 shrink-0 items-center justify-center rounded-md border transition",
+                            isDeleting
+                              ? "cursor-not-allowed border-border2 bg-bg2 text-text3 opacity-50"
+                              : [
+                                  "border-border2 bg-transparent text-text3",
+                                  "hover:border-red/40 hover:bg-red/10 hover:text-red",
+                                  "opacity-80 group-hover:opacity-100 group-focus-within:opacity-100",
+                                ].join(" "),
+                          ].join(" ")}
+                        >
+                          {isDeleting ? (
+                            <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                          ) : (
+                            <svg
+                              width="10"
+                              height="10"
+                              viewBox="0 0 12 12"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1.3"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <path d="M2.5 3.2h7" />
+                              <path d="M4.2 3.2V2.3h3.6v0.9" />
+                              <path d="M3.5 4.2v4.3a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1V4.2" />
+                              <path d="M5 5.2v2.8M7 5.2v2.8" />
+                            </svg>
+                          )}
+                        </button>
+                      ) : null}
                     </div>
 
                     <div

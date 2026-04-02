@@ -60,6 +60,7 @@ export type IngestYoutubePayload = {
 
 export type IngestYoutubeResult = {
   success: boolean;
+  source_id: string;
   video_id: string;
   video_title: string;
   chunks_ingested: number;
@@ -96,6 +97,12 @@ export async function listSources(userId: string): Promise<CatalogSourceResult[]
     method: "GET",
   });
   return payload.sources;
+}
+
+export async function deleteSource(sourceId: string): Promise<void> {
+  await request<{ success: boolean }>(`/sources/${sourceId}`, {
+    method: "DELETE",
+  });
 }
 
 export type CreateSessionPayload = {
@@ -254,6 +261,7 @@ export type IngestFileResult = {
 export type IngestJobResult = {
   success: boolean;
   job_id: string;
+  source_id: string | null;
   file_id: string | null;
   file_name: string;
   source_type: string;

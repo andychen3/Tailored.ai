@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
 
-from app.schemas.source import SourceListItem, SourceListResponse
+from app.schemas.source import DeleteSourceResponse, SourceListItem, SourceListResponse
 from app.services.source_catalog_store import source_catalog_store
 
 router = APIRouter()
@@ -32,3 +32,29 @@ def list_sources(user_id: str = Query(...)) -> SourceListResponse:
             for source in sources
         ]
     )
+
+
+@router.delete("/{source_id}", response_model=DeleteSourceResponse)
+def delete_source(source_id: str) -> DeleteSourceResponse:
+    source = source_catalog_store.get_source(source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found.")
+
+    try:
+        from app.pinecone_client import index
+
+        index.delete(
+            namespace="__default__",
+            filter={"source_id": {"$eq": source_id}},
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to delete source embeddings: {exc}",
+        ) from exc
+
+    deleted = source_catalog_store.delete_source(source_id)
+    if not deleted:
+        raise HTTPException(status_code=500, detail="Failed to delete source record.")
+
+    return DeleteSourceResponse(success=True)

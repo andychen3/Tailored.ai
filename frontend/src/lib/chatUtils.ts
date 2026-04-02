@@ -1,4 +1,4 @@
-import type { SourceItem } from "../types/chat";
+import type { SourceItem, SourceType } from "../types/chat";
 
 export function createId(): number {
   return Date.now() + Math.floor(Math.random() * 100000);
@@ -12,10 +12,41 @@ export function truncateSessionTitle(text: string, maxLength = 28): string {
   return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
 }
 
-export function pickPreferredSource(sources: SourceItem[]): SourceItem | undefined {
-  return sources.find((source) => source.status === "ready") ?? sources[0];
+export function detectFileSourceType(fileName: string): SourceType | undefined {
+  const extension = fileName.split(".").pop()?.toLowerCase();
+  if (extension === "mp4" || extension === "mov" || extension === "avi") {
+    return "video_file";
+  }
+  if (extension === "pdf") {
+    return "pdf";
+  }
+  if (extension === "txt") {
+    return "text";
+  }
+  return undefined;
 }
 
-export function buildMockAssistantReply(question: string): string {
-  return `Based on your sources, here's what I found about "${question}". This is a mocked answer for Phase 2; once we connect FastAPI in Phase 3, this will use real retrieval and citations.`;
+export function toCreatedAtLabel(isoDate: string): string {
+  const createdAt = new Date(isoDate);
+  const now = new Date();
+  if (
+    createdAt.getFullYear() === now.getFullYear() &&
+    createdAt.getMonth() === now.getMonth() &&
+    createdAt.getDate() === now.getDate()
+  ) {
+    return "Today";
+  }
+  return createdAt.toLocaleDateString();
+}
+
+export function canDeleteSource(source: Pick<SourceItem, "sourceId" | "status" | "syncStatus">): boolean {
+  if (!source.sourceId) {
+    return false;
+  }
+
+  if (source.status === "uploading" || source.status === "queued" || source.status === "processing") {
+    return false;
+  }
+
+  return source.status === "ready" || source.status === "error" || source.syncStatus === "missing";
 }

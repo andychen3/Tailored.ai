@@ -72,6 +72,33 @@ class FakeStreamingChatManager(FakeChatManager):
         ]
 
 
+class FailingStreamingChatManager(FakeStreamingChatManager):
+    def _create_stream(self, **kwargs):
+        raise RuntimeError("stream exploded")
+
+
+def _read_sse_events(response) -> list[tuple[str, str]]:
+    events: list[tuple[str, str]] = []
+    current_event: str | None = None
+    current_data: list[str] = []
+
+    for line in response.iter_lines():
+        if isinstance(line, bytes):
+            line = line.decode()
+        if line.startswith("event:"):
+            current_event = line.split(":", 1)[1].strip()
+        elif line.startswith("data:"):
+            current_data.append(line.split(":", 1)[1].strip())
+        elif not line and current_event:
+            events.append((current_event, "\n".join(current_data)))
+            current_event = None
+            current_data = []
+
+    if current_event:
+        events.append((current_event, "\n".join(current_data)))
+    return events
+
+
 def test_chat_session_and_message_and_history(tmp_path, monkeypatch) -> None:
     store = ChatStore(str(tmp_path / "chat.sqlite3"))
     app.dependency_overrides[chat_api.get_chat_store] = lambda: store
@@ -203,6 +230,149 @@ def test_streaming_chat_message_persists_final_assistant_message(tmp_path, monke
     detail_payload = detail_response.json()
     assert len(detail_payload["messages"]) == 2
     assert detail_payload["messages"][1]["content"] == "Echo: hello"
+
+    app.dependency_overrides.clear()
+
+
+def test_chat_threads_remain_isolated(tmp_path, monkeypatch) -> None:
+    store = ChatStore(str(tmp_path / "chat.sqlite3"))
+    app.dependency_overrides[chat_api.get_chat_store] = lambda: store
+    monkeypatch.setattr(
+        chat_api,
+        "build_chat_manager",
+        lambda model, user_id: FakeChatManager(model=model, user_id=user_id),
+    )
+    client = TestClient(app)
+
+    session_one = client.post(
+        "/chat/sessions",
+        json={"user_id": "user_1", "model": "gpt-4o-mini"},
+    ).json()["session_id"]
+    session_two = client.post(
+        "/chat/sessions",
+        json={"user_id": "user_1", "model": "gpt-4o-mini"},
+    ).json()["session_id"]
+
+    client.post("/chat/message", json={"session_id": session_one, "message": "first"})
+    client.post("/chat/message", json={"session_id": session_two, "message": "second"})
+
+    detail_one = client.get(f"/chat/sessions/{session_one}").json()
+    detail_two = client.get(f"/chat/sessions/{session_two}").json()
+
+    assert [message["content"] for message in detail_one["messages"]] == [
+        "first",
+        "Echo: first",
+    ]
+    assert [message["content"] for message in detail_two["messages"]] == [
+        "second",
+        "Echo: second",
+    ]
+
+    app.dependency_overrides.clear()
+
+
+def test_delete_session_removes_it_from_history_and_detail(tmp_path) -> None:
+    store = ChatStore(str(tmp_path / "chat.sqlite3"))
+    app.dependency_overrides[chat_api.get_chat_store] = lambda: store
+    client = TestClient(app)
+
+    session_id = client.post(
+        "/chat/sessions",
+        json={"user_id": "user_1", "model": "gpt-4o-mini"},
+    ).json()["session_id"]
+    store.add_message(session_id=session_id, role="user", content="hello")
+
+    delete_response = client.delete(f"/chat/sessions/{session_id}")
+    assert delete_response.status_code == 200
+    assert delete_response.json() == {"success": True}
+
+    list_response = client.get("/chat/sessions", params={"user_id": "user_1"})
+    assert list_response.status_code == 200
+    assert list_response.json()["sessions"] == []
+
+    detail_response = client.get(f"/chat/sessions/{session_id}")
+    assert detail_response.status_code == 404
+    assert detail_response.json()["detail"] == "Session not found."
+
+    app.dependency_overrides.clear()
+
+
+def test_delete_session_does_not_affect_other_sessions(tmp_path) -> None:
+    store = ChatStore(str(tmp_path / "chat.sqlite3"))
+    app.dependency_overrides[chat_api.get_chat_store] = lambda: store
+    client = TestClient(app)
+
+    session_one = client.post(
+        "/chat/sessions",
+        json={"user_id": "user_1", "model": "gpt-4o-mini"},
+    ).json()["session_id"]
+    session_two = client.post(
+        "/chat/sessions",
+        json={"user_id": "user_1", "model": "gpt-4o-mini"},
+    ).json()["session_id"]
+    other_user_session = client.post(
+        "/chat/sessions",
+        json={"user_id": "user_2", "model": "gpt-4o-mini"},
+    ).json()["session_id"]
+
+    assert client.delete(f"/chat/sessions/{session_one}").status_code == 200
+
+    remaining_user_one = client.get("/chat/sessions", params={"user_id": "user_1"}).json()["sessions"]
+    remaining_user_two = client.get("/chat/sessions", params={"user_id": "user_2"}).json()["sessions"]
+
+    assert [session["session_id"] for session in remaining_user_one] == [session_two]
+    assert [session["session_id"] for session in remaining_user_two] == [other_user_session]
+
+    app.dependency_overrides.clear()
+
+
+def test_delete_missing_session_returns_404(tmp_path) -> None:
+    store = ChatStore(str(tmp_path / "chat.sqlite3"))
+    app.dependency_overrides[chat_api.get_chat_store] = lambda: store
+    client = TestClient(app)
+
+    response = client.delete("/chat/sessions/missing-session")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Session not found."
+
+
+def test_streaming_chat_error_emits_error_event_and_persists_user_message(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    store = ChatStore(str(tmp_path / "chat.sqlite3"))
+    app.dependency_overrides[chat_api.get_chat_store] = lambda: store
+    monkeypatch.setattr(
+        chat_api,
+        "build_chat_manager",
+        lambda model, user_id: FailingStreamingChatManager(model=model, user_id=user_id),
+    )
+    client = TestClient(app)
+
+    session_id = client.post(
+        "/chat/sessions",
+        json={"user_id": "user_1", "model": "gpt-4o-mini"},
+    ).json()["session_id"]
+
+    with client.stream(
+        "POST",
+        "/chat/message/stream",
+        json={"session_id": session_id, "message": "hello"},
+    ) as response:
+        assert response.status_code == 200
+        events = _read_sse_events(response)
+
+    assert len(events) == 1
+    event_name, payload = events[0]
+    assert event_name == "error"
+    assert "stream exploded" in json.loads(payload)["detail"]
+
+    detail_response = client.get(f"/chat/sessions/{session_id}")
+    detail_payload = detail_response.json()
+    assert [message["role"] for message in detail_payload["messages"]] == ["user"]
+    assert detail_payload["messages"][0]["content"] == "hello"
 
     app.dependency_overrides.clear()
 

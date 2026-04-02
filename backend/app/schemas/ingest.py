@@ -13,6 +13,7 @@ class IngestYoutubeRequest(BaseModel):
 
 class IngestYoutubeResponse(BaseModel):
     success: bool
+    source_id: str
     video_id: str
     video_title: str
     chunks_ingested: int
@@ -29,6 +30,7 @@ class IngestFileQueuedResponse(BaseModel):
 class IngestJobResponse(BaseModel):
     success: bool
     job_id: str
+    source_id: str | None = None
     file_name: str
     source_type: IngestSourceType
     status: IngestJobStatus

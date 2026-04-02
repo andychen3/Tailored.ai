@@ -42,6 +42,7 @@ def test_ingest_youtube() -> None:
     assert response.status_code == 200
     assert response.json() == {
         "success": True,
+        "source_id": "source_youtube_1",
         "video_id": "abc123",
         "video_title": "Test Video",
         "chunks_ingested": 4,
@@ -95,6 +96,7 @@ def test_ingest_file_returns_202_and_job_ready() -> None:
     assert job == {
         "success": True,
         "job_id": queued["job_id"],
+        "source_id": "source_file_1",
         "file_name": "notes.txt",
         "source_type": "text",
         "status": "ready",
@@ -167,6 +169,7 @@ def test_ingest_file_job_failure_surfaces_error() -> None:
     assert job == {
         "success": False,
         "job_id": queued["job_id"],
+        "source_id": None,
         "file_name": "clip.mp4",
         "source_type": "video_file",
         "status": "error",

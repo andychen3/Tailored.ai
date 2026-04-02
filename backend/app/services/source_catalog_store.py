@@ -173,6 +173,30 @@ class SourceCatalogStore:
             ).fetchall()
         return [self._row_to_record(row) for row in rows]
 
+    def get_source(self, source_id: str) -> SourceRecord | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT *
+                FROM sources
+                WHERE source_id = ?
+                """,
+                (source_id,),
+            ).fetchone()
+        return self._row_to_record(row) if row else None
+
+    def delete_source(self, source_id: str) -> bool:
+        with self._lock:
+            with self._connect() as conn:
+                deleted = conn.execute(
+                    """
+                    DELETE FROM sources
+                    WHERE source_id = ?
+                    """,
+                    (source_id,),
+                ).rowcount
+        return deleted > 0
+
     def mark_source_sync_status(
         self,
         source_id: str,

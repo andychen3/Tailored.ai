@@ -15,11 +15,19 @@ def _parse_cors_origins(raw_value: str | None) -> list[str]:
             "http://localhost:5173",
             "http://127.0.0.1:5173",
         ]
-    return [origin.strip() for origin in raw_value.split(",") if origin.strip()]
+    return [
+        origin.strip()
+        for origin in raw_value.split(",")
+        if origin.strip()
+    ]
 
 
 def _parse_int(raw_value: str | None, default: int) -> int:
     if not raw_value:
+        return default
+    try:
+        return int(raw_value)
+    except ValueError:
         return default
 
 

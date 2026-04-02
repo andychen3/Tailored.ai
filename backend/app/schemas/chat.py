@@ -63,6 +63,10 @@ class SessionDetailResponse(BaseModel):
     messages: list[SessionMessage]
 
 
+class DeleteSessionResponse(BaseModel):
+    success: bool
+
+
 class ChatMessageRequest(BaseModel):
     session_id: str
     message: str

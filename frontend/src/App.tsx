@@ -18,6 +18,7 @@ function App() {
     sources,
     urlInput,
     isAddingSource,
+    deletingSourceId,
     isSendingMessage,
     deletingSessionId,
     requestError,
@@ -33,6 +34,7 @@ function App() {
     setChatInput,
     setSelectedModel,
     addSource,
+    deleteSource,
     uploadFile,
     sendMessage,
     startNewChat,
@@ -88,8 +90,10 @@ function App() {
         sources={sources}
         urlInput={urlInput}
         isAddingSource={isAddingSource}
+        deletingSourceId={deletingSourceId}
         onUrlInputChange={setUrlInput}
         onAddSource={addSource}
+        onDeleteSource={deleteSource}
         onUploadFile={uploadFile}
         onClose={closeDrawer}
       />

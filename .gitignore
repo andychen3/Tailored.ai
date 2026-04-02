@@ -2,3 +2,6 @@
 __pycache__/
 .venv/
 backend/.venv/
+backend/.local/
+*.sqlite3
+.DS_Store

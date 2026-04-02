@@ -39,6 +39,7 @@ function createDeferred() {
 
 const apiMocks = vi.hoisted(() => ({
   createSession: vi.fn(),
+  deleteSource: vi.fn(),
   deleteSession: vi.fn(),
   getSession: vi.fn(),
   getIngestJob: vi.fn(),
@@ -63,6 +64,7 @@ import * as api from "../lib/api";
 
 const mockedApi = api as unknown as {
   createSession: typeof apiMocks.createSession;
+  deleteSource: typeof apiMocks.deleteSource;
   deleteSession: typeof apiMocks.deleteSession;
   getSession: typeof apiMocks.getSession;
   getIngestJob: typeof apiMocks.getIngestJob;
@@ -78,6 +80,7 @@ const mockedApi = api as unknown as {
 
 describe("useChatController streaming lifecycle", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     mockedApi.createSession.mockResolvedValue({
       session_id: "session_1",
       user_id: "default_user",
@@ -85,6 +88,7 @@ describe("useChatController streaming lifecycle", () => {
       model: "gpt-4o-mini",
       created_at: "2026-04-01T12:00:00.000Z",
     });
+    mockedApi.deleteSource.mockResolvedValue(undefined);
     mockedApi.deleteSession.mockResolvedValue(undefined);
     mockedApi.getSession.mockImplementation(async (sessionId: string) => {
       if (sessionId === "session_2") {
@@ -180,6 +184,7 @@ describe("useChatController streaming lifecycle", () => {
     mockedApi.getIngestJob.mockResolvedValue({
       success: true,
       job_id: "job_1",
+      source_id: "source_file_1",
       file_id: null,
       file_name: "notes.txt",
       source_type: "text",
@@ -196,6 +201,7 @@ describe("useChatController streaming lifecycle", () => {
     });
     mockedApi.ingestYoutube.mockResolvedValue({
       success: true,
+      source_id: "source_yt_1",
       video_id: "abc123",
       video_title: "Video",
       chunks_ingested: 3,
@@ -721,6 +727,65 @@ describe("useChatController streaming lifecycle", () => {
       expect(result.current.currentSessionId).toBeNull();
       expect(result.current.chatMessages).toEqual([]);
       expect(result.current.showEmptyState).toBe(true);
+    });
+  });
+
+  it("deletes a ready source after confirmation", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const { result } = renderHook(() => useChatController());
+
+    await waitFor(() => {
+      expect(result.current.sources).toHaveLength(1);
+      expect(result.current.sources[0]?.sourceId).toBe("source_1");
+    });
+
+    act(() => {
+      void result.current.deleteSource(result.current.sources[0]!.id);
+    });
+
+    await waitFor(() => {
+      expect(mockedApi.deleteSource).toHaveBeenCalledWith("source_1");
+      expect(result.current.sources).toHaveLength(0);
+    });
+  });
+
+  it("keeps the source visible when deletion fails", async () => {
+    mockedApi.deleteSource.mockRejectedValueOnce(new Error("delete failed"));
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const { result } = renderHook(() => useChatController());
+
+    await waitFor(() => {
+      expect(result.current.sources).toHaveLength(1);
+    });
+
+    act(() => {
+      void result.current.deleteSource(result.current.sources[0]!.id);
+    });
+
+    await waitFor(() => {
+      expect(result.current.requestError).toBe("delete failed");
+      expect(result.current.sources).toHaveLength(1);
+    });
+  });
+
+  it("does not call the delete API when source deletion is canceled", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    const { result } = renderHook(() => useChatController());
+
+    await waitFor(() => {
+      expect(result.current.sources).toHaveLength(1);
+    });
+
+    act(() => {
+      void result.current.deleteSource(result.current.sources[0]!.id);
+    });
+
+    await waitFor(() => {
+      expect(mockedApi.deleteSource).not.toHaveBeenCalled();
+      expect(result.current.sources).toHaveLength(1);
     });
   });
 });

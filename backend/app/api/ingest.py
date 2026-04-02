@@ -101,6 +101,7 @@ def _build_job_response(job: IngestJob) -> IngestJobResponse:
     return IngestJobResponse(
         success=job.status != "error",
         job_id=job.job_id,
+        source_id=job.source_id,
         file_name=job.file_name,
         source_type=job.source_type,
         status=job.status,
@@ -181,6 +182,7 @@ def ingest_youtube(
 
     return IngestYoutubeResponse(
         success=True,
+        source_id=source_id,
         video_id=video_id,
         video_title=video_title,
         chunks_ingested=chunk_count,

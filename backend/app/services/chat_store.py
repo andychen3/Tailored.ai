@@ -206,6 +206,27 @@ class ChatStore:
             ).fetchall()
         return [self._row_to_thread(row) for row in rows]
 
+    def delete_session(self, session_id: str) -> bool:
+        with self._lock:
+            with self._connect() as conn:
+                thread_deleted = conn.execute(
+                    """
+                    DELETE FROM chat_threads
+                    WHERE session_id = ?
+                    """,
+                    (session_id,),
+                ).rowcount
+                if thread_deleted == 0:
+                    return False
+                conn.execute(
+                    """
+                    DELETE FROM chat_messages
+                    WHERE session_id = ?
+                    """,
+                    (session_id,),
+                )
+        return True
+
     def add_message(
         self,
         *,

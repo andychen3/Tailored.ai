@@ -9,7 +9,7 @@ class YouTubeIngester:
         self.api = YouTubeTranscriptApi()
 
     def get_video_info(self, url: str) -> dict:
-        opts = {"quiet": True, "skip_download": True, "extract_flat": True}
+        opts = {"quiet": True, "skip_download": True, "extract_flat": True, "remote_components": {"ejs:github"}}
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
             return {

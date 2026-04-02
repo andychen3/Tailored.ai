@@ -12,6 +12,7 @@ from app.schemas.chat import (
     ChatMessageResponse,
     CreateSessionRequest,
     CreateSessionResponse,
+    DeleteSessionResponse,
     SessionDetailResponse,
     SessionListResponse,
     SessionMessage,
@@ -174,6 +175,17 @@ def get_session(
             for m in messages
         ],
     )
+
+
+@router.delete("/sessions/{session_id}", response_model=DeleteSessionResponse)
+def delete_session(
+    session_id: str,
+    store: ChatStore = Depends(get_chat_store),
+) -> DeleteSessionResponse:
+    deleted = store.delete_session(session_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    return DeleteSessionResponse(success=True)
 
 
 @router.post(
