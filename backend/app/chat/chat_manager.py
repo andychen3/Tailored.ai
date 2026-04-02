@@ -3,7 +3,6 @@ import re
 from openai import OpenAI
 from dotenv import load_dotenv
 import os
-from app.chat.message import Message, ChatHistory
 from app.rag.retriever import RAGRetriever
 
 load_dotenv()
@@ -56,7 +55,6 @@ class ChatManager:
     def __init__(
         self, model: str = "gpt-4o-mini", user_id: str = "default_user"
     ) -> None:
-        self.chat_history = ChatHistory()
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.model = model
         self.user_id = user_id
@@ -106,7 +104,11 @@ class ChatManager:
 
         return "\n\n---\n\n".join(cleaned_blocks)
 
-    def _build_messages(self, context: str) -> list[dict[str, str]]:
+    def _build_messages(
+        self,
+        context: str,
+        history: list[dict[str, str]],
+    ) -> list[dict[str, str]]:
         formatted_context = self._format_context_for_prompt(context)
         messages = [{"role": "system", "content": RAG_SYSTEM_PROMPT}]
         messages.append(
@@ -115,7 +117,7 @@ class ChatManager:
                 "content": f"Relevant context from your knowledge base:\n\n{formatted_context}",
             }
         )
-        messages.extend(self.chat_history.get_messages())
+        messages.extend(history)
         return messages
 
     def _strip_markdown(self, text: str) -> str:
@@ -130,12 +132,16 @@ class ChatManager:
                 return "\n".join(lines[:i]).rstrip()
         return answer.strip()
 
-    def answer_question(self, user_input: str) -> tuple[str, list[dict], bool]:
+    def answer_question(
+        self,
+        user_input: str,
+        history: list[dict[str, str]] | None = None,
+    ) -> tuple[str, list[dict], bool]:
         context, sources, use_rag = self.retriever.query(self.user_id, user_input)
         if not use_rag:
             return NO_CONTEXT_MESSAGE, [], False
 
-        messages = self._build_messages(context or "")
+        messages = self._build_messages(context or "", history or [])
         messages.append({"role": "user", "content": user_input})
 
         response = self.client.chat.completions.create(
@@ -145,6 +151,4 @@ class ChatManager:
 
         raw_answer = response.choices[0].message.content or ""
         answer = self._strip_markdown(self._strip_model_sources_section(raw_answer))
-        self.chat_history.add_message(Message("user", user_input))
-        self.chat_history.add_message(Message("assistant", answer))
         return answer, sources, True

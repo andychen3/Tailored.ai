@@ -1,3 +1,6 @@
+from datetime import datetime
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -17,6 +20,37 @@ class CreateSessionRequest(BaseModel):
 class CreateSessionResponse(BaseModel):
     session_id: str
     user_id: str
+    title: str
+    model: str
+    created_at: datetime
+
+
+class SessionSummary(BaseModel):
+    session_id: str
+    user_id: str
+    title: str
+    model: str
+    created_at: datetime
+    updated_at: datetime
+    last_message_at: datetime | None = None
+    message_count: int
+
+
+class SessionMessage(BaseModel):
+    id: str
+    role: Literal["user", "assistant"]
+    content: str
+    sources: list[Source] = []
+    created_at: datetime
+
+
+class SessionListResponse(BaseModel):
+    sessions: list[SessionSummary]
+
+
+class SessionDetailResponse(BaseModel):
+    session: SessionSummary
+    messages: list[SessionMessage]
 
 
 class ChatMessageRequest(BaseModel):

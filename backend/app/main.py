@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+import os
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,6 +26,9 @@ class PrivateNetworkAccessMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        yield
+        return
     try:
         source_reconciler.reconcile_once(limit=200)
         source_reconciler.start_background_reconcile(

@@ -1,5 +1,12 @@
 import os
 import tempfile
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+
+ROOT_ENV_PATH = Path(__file__).resolve().parents[3] / ".env"
+load_dotenv(ROOT_ENV_PATH, override=False)
 
 
 def _parse_cors_origins(raw_value: str | None) -> list[str]:
@@ -32,6 +39,10 @@ class Settings:
         self.sources_db_path = os.getenv(
             "SOURCES_DB_PATH",
             os.path.join(tempfile.gettempdir(), "tailored_ai_sources.sqlite3"),
+        )
+        self.chat_db_path = os.getenv(
+            "CHAT_DB_PATH",
+            os.path.join(tempfile.gettempdir(), "tailored_ai_chat.sqlite3"),
         )
         self.source_reconcile_interval_seconds = _parse_int(
             os.getenv("SOURCE_RECONCILE_INTERVAL_SECONDS"),
