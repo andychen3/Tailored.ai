@@ -1,6 +1,4 @@
 import os
-import shutil
-import tempfile
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
@@ -16,13 +14,19 @@ from app.schemas.ingest import (
     UploadChunkResponse,
     UploadCompleteResponse,
 )
+from app.services.ingest_catalog_service import upsert_ready_source
 from app.services.ingest_job_store import (
     IngestJob,
     IngestJobResult,
     IngestJobStore,
     ingest_job_store,
 )
-from app.services.source_catalog_store import source_catalog_store
+from app.services.upload_staging import (
+    assemble_chunks,
+    cleanup_file,
+    stage_upload,
+    write_upload_chunk,
+)
 
 if TYPE_CHECKING:
     from app.rag.retriever import RAGRetriever
@@ -36,7 +40,6 @@ ALLOWED_EXTENSIONS: dict[str, IngestSourceType] = {
     ".pdf": "pdf",
     ".txt": "text",
 }
-UPLOAD_CHUNK_BYTES = 1024 * 1024
 CONTENT_LENGTH_GRACE_BYTES = 1024 * 1024
 
 
@@ -59,7 +62,7 @@ def _process_ingest_job(job: IngestJob) -> IngestJobResult:
         filename=job.file_name,
         source_type=job.source_type,
     )
-    source_catalog_store.upsert_ready_source(
+    upsert_ready_source(
         source_id=source_id,
         user_id=job.user_id,
         source_type=job.source_type,
@@ -111,35 +114,56 @@ def _build_job_response(job: IngestJob) -> IngestJobResponse:
     )
 
 
-async def _stage_upload(file: UploadFile, ext: str) -> str:
-    os.makedirs(settings.upload_staging_dir, exist_ok=True)
+def _validate_file_request(
+    *,
+    request: Request,
+    user_id: str,
+    file: UploadFile,
+) -> IngestSourceType:
+    if not user_id.strip():
+        raise HTTPException(status_code=400, detail="Missing user_id.")
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Missing file.")
 
-    staged_path = None
-    bytes_written = 0
-    try:
-        with tempfile.NamedTemporaryFile(
-            dir=settings.upload_staging_dir,
-            prefix="ingest_",
-            suffix=ext,
-            delete=False,
-        ) as tmp:
-            staged_path = tmp.name
-            while True:
-                chunk = await file.read(UPLOAD_CHUNK_BYTES)
-                if not chunk:
-                    break
-                bytes_written += len(chunk)
-                if bytes_written > settings.max_file_bytes:
-                    raise HTTPException(
-                        status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-                        detail=_max_upload_detail(),
-                    )
-                tmp.write(chunk)
-        return staged_path
-    except Exception:
-        if staged_path and os.path.exists(staged_path):
-            os.unlink(staged_path)
-        raise
+    content_length = _parse_content_length(request)
+    if content_length is not None and content_length > settings.max_file_bytes + CONTENT_LENGTH_GRACE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=_max_upload_detail(),
+        )
+
+    ext = os.path.splitext(file.filename)[1].lower()
+    source_type = ALLOWED_EXTENSIONS.get(ext)
+    if not source_type:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type: '{ext}'. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
+        )
+
+    if file.size is not None and file.size > settings.max_file_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=_max_upload_detail(),
+        )
+    return source_type
+
+
+def _queue_ingest_job(
+    *,
+    store: IngestJobStore,
+    user_id: str,
+    file_name: str,
+    source_type: IngestSourceType,
+    staged_path: str,
+):
+    job = store.create_job(
+        user_id=user_id.strip(),
+        file_name=file_name,
+        source_type=source_type,
+        staged_path=staged_path,
+    )
+    store.queue_job(job.job_id)
+    return job
 
 
 ingest_job_store.set_processor(_process_ingest_job)
@@ -163,7 +187,7 @@ def ingest_youtube(
             user_id=payload.user_id,
             url=source_url,
         )
-        source_catalog_store.upsert_ready_source(
+        upsert_ready_source(
             source_id=source_id,
             user_id=payload.user_id,
             source_type="youtube",
@@ -200,51 +224,25 @@ async def ingest_file(
     file: UploadFile = File(...),
     store: IngestJobStore = Depends(get_ingest_job_store),
 ) -> IngestFileQueuedResponse:
-    if not user_id.strip():
-        raise HTTPException(status_code=400, detail="Missing user_id.")
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="Missing file.")
-
-    content_length = _parse_content_length(request)
-    if content_length is not None and content_length > settings.max_file_bytes + CONTENT_LENGTH_GRACE_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-            detail=_max_upload_detail(),
-        )
-
-    ext = os.path.splitext(file.filename)[1].lower()
-    source_type = ALLOWED_EXTENSIONS.get(ext)
-    if not source_type:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported file type: '{ext}'. "
-            f"Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
-        )
-
-    if file.size is not None and file.size > settings.max_file_bytes:
-        raise HTTPException(
-            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-            detail=_max_upload_detail(),
-        )
+    source_type = _validate_file_request(request=request, user_id=user_id, file=file)
+    ext = os.path.splitext(file.filename or "")[1].lower()
 
     staged_path = None
     try:
-        staged_path = await _stage_upload(file, ext)
-        job = store.create_job(
-            user_id=user_id.strip(),
-            file_name=file.filename,
+        staged_path = await stage_upload(file, ext, max_upload_detail=_max_upload_detail)
+        job = _queue_ingest_job(
+            store=store,
+            user_id=user_id,
+            file_name=file.filename or "",
             source_type=source_type,
             staged_path=staged_path,
         )
-        store.queue_job(job.job_id)
         staged_path = None
     except HTTPException:
-        if staged_path and os.path.exists(staged_path):
-            os.unlink(staged_path)
+        cleanup_file(staged_path)
         raise
     except Exception as exc:
-        if staged_path and os.path.exists(staged_path):
-            os.unlink(staged_path)
+        cleanup_file(staged_path)
         raise HTTPException(
             status_code=500,
             detail=f"Failed to queue ingestion: {exc}",
@@ -267,25 +265,12 @@ async def upload_chunk(
     chunk_index: int = Form(...),
     chunk: UploadFile = File(...),
 ) -> UploadChunkResponse:
-    """Receive one chunk of a multi-part file upload and write it to disk."""
-    chunk_dir = os.path.join(settings.upload_staging_dir, "chunks", upload_id)
-    os.makedirs(chunk_dir, exist_ok=True)
-    chunk_path = os.path.join(chunk_dir, f"{chunk_index:05d}")
-    try:
-        with open(chunk_path, "wb") as f:
-            while True:
-                data = await chunk.read(UPLOAD_CHUNK_BYTES)
-                if not data:
-                    break
-                f.write(data)
-    finally:
-        await chunk.close()
-
-    return UploadChunkResponse(
+    await write_upload_chunk(
         upload_id=upload_id,
         chunk_index=chunk_index,
-        received=True,
+        chunk=chunk,
     )
+    return UploadChunkResponse(upload_id=upload_id, chunk_index=chunk_index, received=True)
 
 
 @router.post(
@@ -300,7 +285,6 @@ async def upload_complete(
     user_id: str = Form(...),
     store: IngestJobStore = Depends(get_ingest_job_store),
 ) -> UploadCompleteResponse:
-    """Reassemble uploaded chunks into a single file and queue an ingest job."""
     if not user_id.strip():
         raise HTTPException(status_code=400, detail="Missing user_id.")
 
@@ -309,65 +293,34 @@ async def upload_complete(
     if not source_type:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported file type: '{ext}'. "
-            f"Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
+            detail=f"Unsupported file type: '{ext}'. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
         )
 
-    chunk_dir = os.path.join(settings.upload_staging_dir, "chunks", upload_id)
-    for i in range(total_chunks):
-        if not os.path.exists(os.path.join(chunk_dir, f"{i:05d}")):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Missing chunk {i}. Upload may be incomplete.",
-            )
-
-    os.makedirs(settings.upload_staging_dir, exist_ok=True)
     staged_path = None
     try:
-        with tempfile.NamedTemporaryFile(
-            dir=settings.upload_staging_dir,
-            prefix="ingest_",
-            suffix=ext,
-            delete=False,
-        ) as tmp:
-            staged_path = tmp.name
-            bytes_written = 0
-            for i in range(total_chunks):
-                chunk_path = os.path.join(chunk_dir, f"{i:05d}")
-                with open(chunk_path, "rb") as cf:
-                    while True:
-                        data = cf.read(UPLOAD_CHUNK_BYTES)
-                        if not data:
-                            break
-                        bytes_written += len(data)
-                        if bytes_written > settings.max_file_bytes:
-                            raise HTTPException(
-                                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-                                detail=_max_upload_detail(),
-                            )
-                        tmp.write(data)
-
-        job = store.create_job(
-            user_id=user_id.strip(),
+        staged_path = assemble_chunks(
+            upload_id=upload_id,
+            total_chunks=total_chunks,
+            ext=ext,
+            max_upload_detail=_max_upload_detail,
+        )
+        job = _queue_ingest_job(
+            store=store,
+            user_id=user_id,
             file_name=file_name,
             source_type=source_type,
             staged_path=staged_path,
         )
-        store.queue_job(job.job_id)
         staged_path = None
     except HTTPException:
-        if staged_path and os.path.exists(staged_path):
-            os.unlink(staged_path)
+        cleanup_file(staged_path)
         raise
     except Exception as exc:
-        if staged_path and os.path.exists(staged_path):
-            os.unlink(staged_path)
+        cleanup_file(staged_path)
         raise HTTPException(
             status_code=500,
             detail=f"Failed to assemble upload: {exc}",
         ) from exc
-    finally:
-        shutil.rmtree(chunk_dir, ignore_errors=True)
 
     return UploadCompleteResponse(
         success=True,

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from app.chat.constants import NO_CONTEXT_MESSAGE
+from app.chat.openai_client import usage_to_dict
 from app.core.config import settings
 from app.schemas.chat import (
     ChatModelItem,
@@ -56,6 +57,56 @@ def _to_usage(usage: dict[str, int] | None):
     }
 
 
+def _build_thread_usage(store: ChatStore, session_id: str):
+    updated_session = store.get_session(session_id)
+    if updated_session is None:
+        return None
+    return {
+        "prompt_tokens": updated_session.prompt_tokens_total,
+        "completion_tokens": updated_session.completion_tokens_total,
+        "total_tokens": updated_session.total_tokens_total,
+    }
+
+
+def _persist_assistant_turn(
+    *,
+    store: ChatStore,
+    session_id: str,
+    reply: str,
+    sources: list[dict],
+    usage: dict[str, int] | None = None,
+):
+    return store.add_message(
+        session_id=session_id,
+        role="assistant",
+        content=reply,
+        sources=sources,
+        prompt_tokens=usage["prompt_tokens"] if usage else None,
+        completion_tokens=usage["completion_tokens"] if usage else None,
+        total_tokens=usage["total_tokens"] if usage else None,
+    )
+
+
+def _build_chat_response(
+    *,
+    store: ChatStore,
+    session_id: str,
+    reply: str,
+    sources: list[dict],
+    usage: dict[str, int] | None,
+    assistant_message_id: str | None = None,
+) -> dict:
+    payload = {
+        "reply": reply,
+        "sources": sources,
+        "usage": _to_usage(usage),
+        "thread_usage": _build_thread_usage(store, session_id),
+    }
+    if assistant_message_id:
+        payload["assistant_message_id"] = assistant_message_id
+    return payload
+
+
 def _sse_event(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
@@ -74,7 +125,7 @@ def _prepare_turn(
         raise HTTPException(status_code=400, detail="Missing message.")
 
     prior_messages = store.list_messages(payload.session_id)
-    history = [{"role": m.role, "content": m.content} for m in prior_messages]
+    history = [{"role": message.role, "content": message.content} for message in prior_messages]
 
     if session.title == "New chat":
         store.set_title(payload.session_id, user_text[:40].strip() or "New chat")
@@ -131,7 +182,7 @@ def list_sessions(
         raise HTTPException(status_code=400, detail="Missing user_id.")
 
     sessions = store.list_sessions(cleaned_user_id)
-    return SessionListResponse(sessions=[_to_session_summary(s) for s in sessions])
+    return SessionListResponse(sessions=[_to_session_summary(session) for session in sessions])
 
 
 @router.get("/sessions/{session_id}", response_model=SessionDetailResponse)
@@ -148,21 +199,21 @@ def get_session(
         session=_to_session_summary(session),
         messages=[
             SessionMessage(
-                id=m.id,
-                role=m.role,
-                content=m.content,
-                sources=m.sources,
+                id=message.id,
+                role=message.role,
+                content=message.content,
+                sources=message.sources,
                 usage=(
                     {
-                        "prompt_tokens": m.prompt_tokens,
-                        "completion_tokens": m.completion_tokens,
-                        "total_tokens": m.total_tokens,
+                        "prompt_tokens": message.prompt_tokens,
+                        "completion_tokens": message.completion_tokens,
+                        "total_tokens": message.total_tokens,
                     }
-                    if m.total_tokens is not None
+                    if message.total_tokens is not None
                     else None
                 ),
             )
-            for m in messages
+            for message in messages
         ],
     )
 
@@ -195,30 +246,21 @@ def send_message(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Chat request failed: {exc}") from exc
 
-    store.add_message(
+    _persist_assistant_turn(
+        store=store,
         session_id=payload.session_id,
-        role="assistant",
-        content=reply,
-        sources=sources,
-        prompt_tokens=usage["prompt_tokens"] if usage else None,
-        completion_tokens=usage["completion_tokens"] if usage else None,
-        total_tokens=usage["total_tokens"] if usage else None,
-    )
-    updated_session = store.get_session(payload.session_id)
-    thread_usage = (
-        {
-            "prompt_tokens": updated_session.prompt_tokens_total,
-            "completion_tokens": updated_session.completion_tokens_total,
-            "total_tokens": updated_session.total_tokens_total,
-        }
-        if updated_session is not None
-        else None
-    )
-    return ChatMessageResponse(
         reply=reply,
         sources=sources,
-        usage=_to_usage(usage),
-        thread_usage=thread_usage,
+        usage=usage,
+    )
+    return ChatMessageResponse(
+        **_build_chat_response(
+            store=store,
+            session_id=payload.session_id,
+            reply=reply,
+            sources=sources,
+            usage=usage,
+        )
     )
 
 
@@ -234,92 +276,64 @@ def stream_message(
     async def event_stream() -> AsyncIterator[str]:
         raw_answer = ""
         usage_payload: dict[str, int] | None = None
-        assistant_message_id: str | None = None
 
         try:
             if not completion_request.has_context:
-                raw_answer = NO_CONTEXT_MESSAGE
-                cleaned_answer = manager.finalize_answer(raw_answer, [])
-                assistant_record = store.add_message(
+                cleaned_answer = manager.finalize_answer(NO_CONTEXT_MESSAGE, [])
+                assistant_record = _persist_assistant_turn(
+                    store=store,
                     session_id=payload.session_id,
-                    role="assistant",
-                    content=cleaned_answer,
+                    reply=cleaned_answer,
                     sources=[],
                 )
-                assistant_message_id = assistant_record.id
-                updated_session = store.get_session(payload.session_id)
-                thread_usage = (
-                    {
-                        "prompt_tokens": updated_session.prompt_tokens_total,
-                        "completion_tokens": updated_session.completion_tokens_total,
-                        "total_tokens": updated_session.total_tokens_total,
-                    }
-                    if updated_session is not None
-                    else None
-                )
+                yield _sse_event("delta", {"delta": cleaned_answer})
                 yield _sse_event(
-                    "delta",
-                    {
-                        "delta": cleaned_answer,
-                    },
+                    "completion",
+                    _build_chat_response(
+                        store=store,
+                        session_id=payload.session_id,
+                        reply=cleaned_answer,
+                        sources=[],
+                        usage=None,
+                        assistant_message_id=assistant_record.id,
+                    ),
                 )
-            else:
-                response_stream = manager.client.chat.completions.create(
-                    model=manager.model,
-                    messages=completion_request.messages,
-                    stream=True,
-                    stream_options={"include_usage": True},
-                )
+                return
 
-                for chunk in response_stream:
-                    choice = chunk.choices[0] if chunk.choices else None
-                    delta = getattr(choice.delta, "content", None) if choice is not None else None
-                    if delta:
-                        raw_answer += delta
-                        yield _sse_event("delta", {"delta": delta})
+            response_stream = manager.client.chat.completions.create(
+                model=manager.model,
+                messages=completion_request.messages,
+                stream=True,
+                stream_options={"include_usage": True},
+            )
 
-                    usage = getattr(chunk, "usage", None)
-                    if usage is not None:
-                        usage_payload = {
-                            "prompt_tokens": int(getattr(usage, "prompt_tokens", 0) or 0),
-                            "completion_tokens": int(getattr(usage, "completion_tokens", 0) or 0),
-                            "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
-                        }
+            for chunk in response_stream:
+                choice = chunk.choices[0] if chunk.choices else None
+                delta = getattr(choice.delta, "content", None) if choice is not None else None
+                if delta:
+                    raw_answer += delta
+                    yield _sse_event("delta", {"delta": delta})
 
-                cleaned_answer = manager.finalize_answer(
-                    raw_answer,
-                    completion_request.sources,
-                )
-                assistant_record = store.add_message(
-                    session_id=payload.session_id,
-                    role="assistant",
-                    content=cleaned_answer,
-                    sources=completion_request.sources,
-                    prompt_tokens=usage_payload["prompt_tokens"] if usage_payload else None,
-                    completion_tokens=usage_payload["completion_tokens"] if usage_payload else None,
-                    total_tokens=usage_payload["total_tokens"] if usage_payload else None,
-                )
-                assistant_message_id = assistant_record.id
+                usage_payload = usage_to_dict(getattr(chunk, "usage", None)) or usage_payload
 
-            updated_session = store.get_session(payload.session_id)
-            thread_usage = (
-                {
-                    "prompt_tokens": updated_session.prompt_tokens_total,
-                    "completion_tokens": updated_session.completion_tokens_total,
-                    "total_tokens": updated_session.total_tokens_total,
-                }
-                if updated_session is not None
-                else None
+            cleaned_answer = manager.finalize_answer(raw_answer, completion_request.sources)
+            assistant_record = _persist_assistant_turn(
+                store=store,
+                session_id=payload.session_id,
+                reply=cleaned_answer,
+                sources=completion_request.sources,
+                usage=usage_payload,
             )
             yield _sse_event(
                 "completion",
-                {
-                    "reply": cleaned_answer,
-                    "sources": completion_request.sources,
-                    "usage": _to_usage(usage_payload),
-                    "thread_usage": thread_usage,
-                    "assistant_message_id": assistant_message_id,
-                },
+                _build_chat_response(
+                    store=store,
+                    session_id=payload.session_id,
+                    reply=cleaned_answer,
+                    sources=completion_request.sources,
+                    usage=usage_payload,
+                    assistant_message_id=assistant_record.id,
+                ),
             )
         except Exception as exc:
             yield _sse_event("error", {"detail": f"Chat request failed: {exc}"})
