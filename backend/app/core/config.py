@@ -4,24 +4,57 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-
 ROOT_ENV_PATH = Path(__file__).resolve().parents[3] / ".env"
 load_dotenv(ROOT_ENV_PATH, override=False)
 
 
 def _parse_cors_origins(raw_value: str | None) -> list[str]:
     if not raw_value:
-        return ["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:5173"]
+        return [
+            "http://localhost:3000",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ]
     return [origin.strip() for origin in raw_value.split(",") if origin.strip()]
 
 
 def _parse_int(raw_value: str | None, default: int) -> int:
     if not raw_value:
         return default
-    try:
-        return int(raw_value)
-    except ValueError:
+
+
+def _parse_csv(raw_value: str | None, default: list[str]) -> list[str]:
+    if not raw_value:
         return default
+    values = [value.strip() for value in raw_value.split(",") if value.strip()]
+    return values or default
+
+
+def _parse_model_limits(
+    raw_value: str | None,
+    allowed_models: list[str],
+) -> dict[str, int]:
+    default_limit = 128000
+    limits = {model: default_limit for model in allowed_models}
+    if not raw_value:
+        return limits
+
+    for item in raw_value.split(","):
+        token = item.strip()
+        if not token or ":" not in token:
+            continue
+        model, limit_str = token.split(":", 1)
+        model = model.strip()
+        limit_str = limit_str.strip()
+        if not model:
+            continue
+        try:
+            parsed_limit = int(limit_str)
+        except ValueError:
+            continue
+        if parsed_limit > 0:
+            limits[model] = parsed_limit
+    return limits
 
 
 class Settings:
@@ -43,6 +76,14 @@ class Settings:
         self.chat_db_path = os.getenv(
             "CHAT_DB_PATH",
             os.path.join(tempfile.gettempdir(), "tailored_ai_chat.sqlite3"),
+        )
+        self.chat_allowed_models = _parse_csv(
+            os.getenv("CHAT_ALLOWED_MODELS"),
+            ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4.1"],
+        )
+        self.chat_model_context_limits = _parse_model_limits(
+            os.getenv("CHAT_MODEL_CONTEXT_LIMITS"),
+            self.chat_allowed_models,
         )
         self.source_reconcile_interval_seconds = _parse_int(
             os.getenv("SOURCE_RECONCILE_INTERVAL_SECONDS"),

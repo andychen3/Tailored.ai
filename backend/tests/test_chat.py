@@ -14,11 +14,16 @@ class FakeChatManager:
         self,
         user_input: str,
         history: list[dict[str, str]] | None = None,
-    ) -> tuple[str, list[dict], bool]:
+    ) -> tuple[str, list[dict], bool, dict[str, int] | None]:
         return (
             f"Echo: {user_input}",
             [{"title": "Demo Video", "timestamp": "0:12"}],
             True,
+            {
+                "prompt_tokens": 11,
+                "completion_tokens": 7,
+                "total_tokens": 18,
+            },
         )
 
 
@@ -52,6 +57,16 @@ def test_chat_session_and_message_and_history(tmp_path, monkeypatch) -> None:
         "reply": "Echo: hello",
         "sources": [{"title": "Demo Video", "timestamp": "0:12"}],
         "has_context": True,
+        "usage": {
+            "prompt_tokens": 11,
+            "completion_tokens": 7,
+            "total_tokens": 18,
+        },
+        "thread_usage": {
+            "prompt_tokens": 11,
+            "completion_tokens": 7,
+            "total_tokens": 18,
+        },
     }
 
     list_response = client.get("/chat/sessions", params={"user_id": "user_1"})
@@ -60,6 +75,7 @@ def test_chat_session_and_message_and_history(tmp_path, monkeypatch) -> None:
     assert len(sessions) == 1
     assert sessions[0]["session_id"] == session_id
     assert sessions[0]["message_count"] == 2
+    assert sessions[0]["total_tokens_total"] == 18
 
     detail_response = client.get(f"/chat/sessions/{session_id}")
     assert detail_response.status_code == 200
@@ -71,5 +87,27 @@ def test_chat_session_and_message_and_history(tmp_path, monkeypatch) -> None:
     assert messages[0]["content"] == "hello"
     assert messages[1]["role"] == "assistant"
     assert messages[1]["content"] == "Echo: hello"
+    assert messages[1]["usage"] == {
+        "prompt_tokens": 11,
+        "completion_tokens": 7,
+        "total_tokens": 18,
+    }
+
+    models_response = client.get("/chat/models")
+    assert models_response.status_code == 200
+    assert len(models_response.json()["models"]) >= 1
 
     app.dependency_overrides.clear()
+
+
+def test_create_session_rejects_unsupported_model(tmp_path) -> None:
+    store = ChatStore(str(tmp_path / "chat.sqlite3"))
+    app.dependency_overrides[chat_api.get_chat_store] = lambda: store
+    client = TestClient(app)
+    response = client.post(
+        "/chat/sessions",
+        json={"user_id": "user_1", "model": "not-a-model"},
+    )
+    app.dependency_overrides.clear()
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Unsupported model."

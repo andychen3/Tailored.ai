@@ -136,10 +136,10 @@ class ChatManager:
         self,
         user_input: str,
         history: list[dict[str, str]] | None = None,
-    ) -> tuple[str, list[dict], bool]:
+    ) -> tuple[str, list[dict], bool, dict[str, int] | None]:
         context, sources, use_rag = self.retriever.query(self.user_id, user_input)
         if not use_rag:
-            return NO_CONTEXT_MESSAGE, [], False
+            return NO_CONTEXT_MESSAGE, [], False, None
 
         messages = self._build_messages(context or "", history or [])
         messages.append({"role": "user", "content": user_input})
@@ -151,4 +151,12 @@ class ChatManager:
 
         raw_answer = response.choices[0].message.content or ""
         answer = self._strip_markdown(self._strip_model_sources_section(raw_answer))
-        return answer, sources, True
+        usage = getattr(response, "usage", None)
+        usage_payload = None
+        if usage is not None:
+            usage_payload = {
+                "prompt_tokens": int(getattr(usage, "prompt_tokens", 0) or 0),
+                "completion_tokens": int(getattr(usage, "completion_tokens", 0) or 0),
+                "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
+            }
+        return answer, sources, True, usage_payload

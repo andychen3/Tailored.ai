@@ -28,6 +28,9 @@ class ChatThread:
     updated_at: datetime
     last_message_at: datetime | None
     message_count: int = 0
+    prompt_tokens_total: int = 0
+    completion_tokens_total: int = 0
+    total_tokens_total: int = 0
 
 
 @dataclass(slots=True)
@@ -37,6 +40,9 @@ class ChatMessageRecord:
     role: str
     content: str
     sources: list[dict]
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    total_tokens: int | None
     created_at: datetime
 
 
@@ -80,17 +86,37 @@ class ChatStore:
                     role TEXT NOT NULL,
                     content TEXT NOT NULL,
                     sources_json TEXT NOT NULL DEFAULT '[]',
+                    prompt_tokens INTEGER,
+                    completion_tokens INTEGER,
+                    total_tokens INTEGER,
                     created_at TEXT NOT NULL,
                     FOREIGN KEY(session_id) REFERENCES chat_threads(session_id)
                 )
                 """
             )
+            self._ensure_column(conn, "chat_messages", "prompt_tokens", "INTEGER")
+            self._ensure_column(conn, "chat_messages", "completion_tokens", "INTEGER")
+            self._ensure_column(conn, "chat_messages", "total_tokens", "INTEGER")
             conn.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_chat_messages_session_created
                 ON chat_messages(session_id, created_at ASC)
                 """
             )
+
+    def _ensure_column(
+        self,
+        conn: sqlite3.Connection,
+        table_name: str,
+        column_name: str,
+        column_type: str,
+    ) -> None:
+        columns = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+        if any(col["name"] == column_name for col in columns):
+            return
+        conn.execute(
+            f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"
+        )
 
     def create_session(
         self,
@@ -141,7 +167,10 @@ class ChatStore:
                     t.created_at,
                     t.updated_at,
                     t.last_message_at,
-                    COALESCE(COUNT(m.id), 0) AS message_count
+                    COALESCE(COUNT(m.id), 0) AS message_count,
+                    COALESCE(SUM(m.prompt_tokens), 0) AS prompt_tokens_total,
+                    COALESCE(SUM(m.completion_tokens), 0) AS completion_tokens_total,
+                    COALESCE(SUM(m.total_tokens), 0) AS total_tokens_total
                 FROM chat_threads t
                 LEFT JOIN chat_messages m ON m.session_id = t.session_id
                 WHERE t.session_id = ?
@@ -163,7 +192,10 @@ class ChatStore:
                     t.created_at,
                     t.updated_at,
                     t.last_message_at,
-                    COALESCE(COUNT(m.id), 0) AS message_count
+                    COALESCE(COUNT(m.id), 0) AS message_count,
+                    COALESCE(SUM(m.prompt_tokens), 0) AS prompt_tokens_total,
+                    COALESCE(SUM(m.completion_tokens), 0) AS completion_tokens_total,
+                    COALESCE(SUM(m.total_tokens), 0) AS total_tokens_total
                 FROM chat_threads t
                 LEFT JOIN chat_messages m ON m.session_id = t.session_id
                 WHERE t.user_id = ?
@@ -181,6 +213,9 @@ class ChatStore:
         role: str,
         content: str,
         sources: list[dict] | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
     ) -> ChatMessageRecord:
         now = _utc_now_iso()
         message_id = uuid4().hex
@@ -195,11 +230,24 @@ class ChatStore:
                         role,
                         content,
                         sources_json,
+                        prompt_tokens,
+                        completion_tokens,
+                        total_tokens,
                         created_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (message_id, session_id, role, content, serialized_sources, now),
+                    (
+                        message_id,
+                        session_id,
+                        role,
+                        content,
+                        serialized_sources,
+                        prompt_tokens,
+                        completion_tokens,
+                        total_tokens,
+                        now,
+                    ),
                 )
                 conn.execute(
                     """
@@ -215,6 +263,9 @@ class ChatStore:
             role=role,
             content=content,
             sources=sources or [],
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
             created_at=_parse_datetime(now),
         )
 
@@ -228,6 +279,9 @@ class ChatStore:
                     role,
                     content,
                     sources_json,
+                    prompt_tokens,
+                    completion_tokens,
+                    total_tokens,
                     created_at
                 FROM chat_messages
                 WHERE session_id = ?
@@ -260,6 +314,9 @@ class ChatStore:
             updated_at=_parse_datetime(row["updated_at"]),
             last_message_at=_parse_datetime(last_message_raw) if last_message_raw else None,
             message_count=int(row["message_count"]),
+            prompt_tokens_total=int(row["prompt_tokens_total"]),
+            completion_tokens_total=int(row["completion_tokens_total"]),
+            total_tokens_total=int(row["total_tokens_total"]),
         )
 
     def _row_to_message(self, row: sqlite3.Row) -> ChatMessageRecord:
@@ -273,6 +330,9 @@ class ChatStore:
             role=row["role"],
             content=row["content"],
             sources=sources,
+            prompt_tokens=row["prompt_tokens"],
+            completion_tokens=row["completion_tokens"],
+            total_tokens=row["total_tokens"],
             created_at=_parse_datetime(row["created_at"]),
         )
 
