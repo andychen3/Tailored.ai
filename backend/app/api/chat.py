@@ -250,7 +250,7 @@ def stream_message(
         try:
             if not completion_request.has_context:
                 raw_answer = NO_CONTEXT_MESSAGE
-                cleaned_answer = manager.finalize_answer(raw_answer)
+                cleaned_answer = manager.finalize_answer(raw_answer, [])
                 assistant_record = store.add_message(
                     session_id=payload.session_id,
                     role="assistant",
@@ -297,7 +297,10 @@ def stream_message(
                             "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
                         }
 
-                cleaned_answer = manager.finalize_answer(raw_answer)
+                cleaned_answer = manager.finalize_answer(
+                    raw_answer,
+                    completion_request.sources,
+                )
                 assistant_record = store.add_message(
                     session_id=payload.session_id,
                     role="assistant",
