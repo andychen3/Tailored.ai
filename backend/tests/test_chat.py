@@ -1,4 +1,7 @@
+import json
+
 from fastapi.testclient import TestClient
+from types import SimpleNamespace
 
 from app.api import chat as chat_api
 from app.main import app
@@ -25,6 +28,48 @@ class FakeChatManager:
                 "total_tokens": 18,
             },
         )
+
+
+class FakeStreamingChatManager(FakeChatManager):
+    def __init__(self, model: str, user_id: str) -> None:
+        super().__init__(model=model, user_id=user_id)
+        self.client = SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(create=self._create_stream)
+            )
+        )
+
+    def build_completion_request(
+        self,
+        user_input: str,
+        history: list[dict[str, str]] | None = None,
+    ) -> SimpleNamespace:
+        return SimpleNamespace(
+            messages=[{"role": "user", "content": user_input}],
+            sources=[{"title": "Demo Video", "timestamp": "0:12"}],
+            has_context=True,
+        )
+
+    def finalize_answer(self, raw_answer: str) -> str:
+        return raw_answer.strip()
+
+    def _create_stream(self, **kwargs):
+        assert kwargs["stream"] is True
+        assert kwargs["messages"]
+        return [
+            SimpleNamespace(
+                choices=[SimpleNamespace(delta=SimpleNamespace(content="Echo"))],
+                usage=None,
+            ),
+            SimpleNamespace(
+                choices=[SimpleNamespace(delta=SimpleNamespace(content=": hello"))],
+                usage=SimpleNamespace(
+                    prompt_tokens=11,
+                    completion_tokens=7,
+                    total_tokens=18,
+                ),
+            ),
+        ]
 
 
 def test_chat_session_and_message_and_history(tmp_path, monkeypatch) -> None:
@@ -96,6 +141,68 @@ def test_chat_session_and_message_and_history(tmp_path, monkeypatch) -> None:
     models_response = client.get("/chat/models")
     assert models_response.status_code == 200
     assert len(models_response.json()["models"]) >= 1
+
+    app.dependency_overrides.clear()
+
+
+def test_streaming_chat_message_persists_final_assistant_message(tmp_path, monkeypatch) -> None:
+    store = ChatStore(str(tmp_path / "chat.sqlite3"))
+    app.dependency_overrides[chat_api.get_chat_store] = lambda: store
+    monkeypatch.setattr(
+        chat_api,
+        "build_chat_manager",
+        lambda model, user_id: FakeStreamingChatManager(model=model, user_id=user_id),
+    )
+    client = TestClient(app)
+
+    create_response = client.post(
+        "/chat/sessions",
+        json={"user_id": "user_1", "model": "gpt-4o-mini"},
+    )
+    session_id = create_response.json()["session_id"]
+
+    with client.stream(
+        "POST",
+        "/chat/message/stream",
+        json={"session_id": session_id, "message": "hello"},
+    ) as response:
+        assert response.status_code == 200
+        events = []
+        current_event = None
+        current_data: list[str] = []
+        for line in response.iter_lines():
+            if isinstance(line, bytes):
+                line = line.decode()
+            if line.startswith("event:"):
+                current_event = line.split(":", 1)[1].strip()
+            elif line.startswith("data:"):
+                current_data.append(line.split(":", 1)[1].strip())
+            elif not line and current_event:
+                events.append((current_event, "\n".join(current_data)))
+                current_event = None
+                current_data = []
+        if current_event:
+            events.append((current_event, "\n".join(current_data)))
+
+        assert [event for event, _ in events] == ["delta", "delta", "completion"]
+        completion_payload = next(
+            payload for event, payload in events if event == "completion"
+        )
+
+    completion = json.loads(completion_payload)
+    assert completion["reply"] == "Echo: hello"
+    assert completion["assistant_message_id"]
+    assert completion["usage"] == {
+        "prompt_tokens": 11,
+        "completion_tokens": 7,
+        "total_tokens": 18,
+    }
+
+    detail_response = client.get(f"/chat/sessions/{session_id}")
+    assert detail_response.status_code == 200
+    detail_payload = detail_response.json()
+    assert len(detail_payload["messages"]) == 2
+    assert detail_payload["messages"][1]["content"] == "Echo: hello"
 
     app.dependency_overrides.clear()
 

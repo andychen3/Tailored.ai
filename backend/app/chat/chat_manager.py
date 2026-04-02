@@ -1,4 +1,5 @@
 import re
+from dataclasses import dataclass
 
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -45,6 +46,13 @@ NO_CONTEXT_MESSAGE = (
     "I couldn't find anything relevant to that in your knowledge base. "
     "Try rephrasing or ask something more specific to your content."
 )
+
+
+@dataclass(slots=True)
+class ChatCompletionRequest:
+    messages: list[dict[str, str]]
+    sources: list[dict]
+    has_context: bool
 
 
 class ChatManager:
@@ -132,25 +140,38 @@ class ChatManager:
                 return "\n".join(lines[:i]).rstrip()
         return answer.strip()
 
+    def build_completion_request(
+        self,
+        user_input: str,
+        history: list[dict[str, str]] | None = None,
+    ) -> ChatCompletionRequest:
+        context, sources, use_rag = self.retriever.query(self.user_id, user_input)
+        if not use_rag:
+            return ChatCompletionRequest(messages=[], sources=[], has_context=False)
+
+        messages = self._build_messages(context or "", history or [])
+        messages.append({"role": "user", "content": user_input})
+        return ChatCompletionRequest(messages=messages, sources=sources, has_context=True)
+
+    def finalize_answer(self, raw_answer: str) -> str:
+        return self._strip_markdown(self._strip_model_sources_section(raw_answer))
+
     def answer_question(
         self,
         user_input: str,
         history: list[dict[str, str]] | None = None,
     ) -> tuple[str, list[dict], bool, dict[str, int] | None]:
-        context, sources, use_rag = self.retriever.query(self.user_id, user_input)
-        if not use_rag:
+        request = self.build_completion_request(user_input, history)
+        if not request.has_context:
             return NO_CONTEXT_MESSAGE, [], False, None
-
-        messages = self._build_messages(context or "", history or [])
-        messages.append({"role": "user", "content": user_input})
 
         response = self.client.chat.completions.create(
             model=self.model,
-            messages=messages,
+            messages=request.messages,
         )
 
         raw_answer = response.choices[0].message.content or ""
-        answer = self._strip_markdown(self._strip_model_sources_section(raw_answer))
+        answer = self.finalize_answer(raw_answer)
         usage = getattr(response, "usage", None)
         usage_payload = None
         if usage is not None:
