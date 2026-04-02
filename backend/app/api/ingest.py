@@ -22,6 +22,7 @@ from app.services.ingest_job_store import (
     IngestJobStore,
     ingest_job_store,
 )
+from app.services.source_catalog_store import source_catalog_store
 
 if TYPE_CHECKING:
     from app.rag.retriever import RAGRetriever
@@ -52,13 +53,24 @@ def get_ingest_job_store() -> IngestJobStore:
 
 def _process_ingest_job(job: IngestJob) -> IngestJobResult:
     retriever = get_retriever()
-    chunk_count, file_id, display_name = retriever.ingest_file(
+    chunk_count, file_id, display_name, source_id = retriever.ingest_file(
         user_id=job.user_id,
         file_path=job.staged_path,
         filename=job.file_name,
         source_type=job.source_type,
     )
+    source_catalog_store.upsert_ready_source(
+        source_id=source_id,
+        user_id=job.user_id,
+        source_type=job.source_type,
+        title=display_name,
+        source_url=None,
+        video_id=None,
+        file_id=file_id,
+        expected_chunk_count=chunk_count,
+    )
     return IngestJobResult(
+        source_id=source_id,
         file_id=file_id,
         file_name=display_name,
         chunks_ingested=chunk_count,
@@ -146,9 +158,19 @@ def ingest_youtube(
         )
 
     try:
-        chunk_count, video_title = retriever.ingest_youtube_url(
+        chunk_count, video_title, source_id = retriever.ingest_youtube_url(
             user_id=payload.user_id,
             url=source_url,
+        )
+        source_catalog_store.upsert_ready_source(
+            source_id=source_id,
+            user_id=payload.user_id,
+            source_type="youtube",
+            title=video_title,
+            source_url=source_url,
+            video_id=video_id,
+            file_id=None,
+            expected_chunk_count=chunk_count,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

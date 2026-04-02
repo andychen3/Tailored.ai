@@ -30,6 +30,7 @@ class IngestJob:
 
 @dataclass(slots=True)
 class IngestJobResult:
+    source_id: str
     file_id: str
     file_name: str
     chunks_ingested: int

@@ -17,17 +17,24 @@ class RAGRetriever:
         self.ingester = YouTubeIngester()
         self.chunker = Chunker()
 
-    def ingest_youtube_url(self, user_id: str, url: str) -> tuple[int, str]:
+    def ingest_youtube_url(
+        self,
+        user_id: str,
+        url: str,
+        source_id: str | None = None,
+    ) -> tuple[int, str, str]:
         video_info = self.ingester.get_video_info(url)
         video_title = video_info["title"]
         video_id, transcript = self.ingester.fetch_transcript(url)
         chunks = self.chunker.chunk_transcript(transcript)
+        source_id = source_id or uuid.uuid4().hex
 
         records = [
             {
-                "id": f"{user_id}_{video_id}_{i}",
+                "id": f"{source_id}:{i}",
                 "chunk_text": chunk["text"],
                 "user_id": user_id,
+                "source_id": source_id,
                 "source_type": "youtube",
                 "video_id": video_id,
                 "video_title": video_title,
@@ -41,7 +48,7 @@ class RAGRetriever:
                 namespace="__default__",
                 records=records[i : i + PINECONE_BATCH_SIZE],
             )
-        return len(records), video_title
+        return len(records), video_title, source_id
 
     def ingest_file(
         self,
@@ -49,11 +56,13 @@ class RAGRetriever:
         file_path: str,
         filename: str,
         source_type: str,
-    ) -> tuple[int, str, str]:
+        source_id: str | None = None,
+    ) -> tuple[int, str, str, str]:
         """Ingest an uploaded file.
 
-        Returns (chunk_count, file_id, filename).
+        Returns (chunk_count, file_id, filename, source_id).
         """
+        source_id = source_id or uuid.uuid4().hex
         file_id = (
             f"{filename.rsplit('.', 1)[0].lower().replace(' ', '_')}"
             f"_{uuid.uuid4().hex[:8]}"
@@ -65,9 +74,10 @@ class RAGRetriever:
             chunks = self.chunker.chunk_transcript(transcript)
             records = [
                 {
-                    "id": f"{user_id}_{file_id}_{i}",
+                    "id": f"{source_id}:{i}",
                     "chunk_text": chunk["text"],
                     "user_id": user_id,
+                    "source_id": source_id,
                     "source_type": source_type,
                     "file_id": file_id,
                     "file_name": filename,
@@ -86,9 +96,10 @@ class RAGRetriever:
                 page_chunks = chunker.chunk_text(page["text"])
                 for chunk in page_chunks:
                     records.append({
-                        "id": f"{user_id}_{file_id}_{idx}",
+                        "id": f"{source_id}:{idx}",
                         "chunk_text": chunk["text"],
                         "user_id": user_id,
+                        "source_id": source_id,
                         "source_type": source_type,
                         "file_id": file_id,
                         "file_name": filename,
@@ -103,9 +114,10 @@ class RAGRetriever:
             chunks = TextChunker().chunk_text(text)
             records = [
                 {
-                    "id": f"{user_id}_{file_id}_{i}",
+                    "id": f"{source_id}:{i}",
                     "chunk_text": chunk["text"],
                     "user_id": user_id,
+                    "source_id": source_id,
                     "source_type": source_type,
                     "file_id": file_id,
                     "file_name": filename,
@@ -119,7 +131,7 @@ class RAGRetriever:
                 namespace="__default__",
                 records=records[i : i + PINECONE_BATCH_SIZE],
             )
-        return len(records), file_id, filename
+        return len(records), file_id, filename, source_id
 
     def query(
         self, user_id: str, question: str, top_k: int = 12

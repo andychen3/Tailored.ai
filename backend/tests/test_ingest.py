@@ -20,8 +20,8 @@ class FakeRetriever:
     def __init__(self) -> None:
         self.ingester = FakeIngester()
 
-    def ingest_youtube_url(self, user_id: str, url: str) -> tuple[int, str]:
-        return 4, "Test Video"
+    def ingest_youtube_url(self, user_id: str, url: str) -> tuple[int, str, str]:
+        return 4, "Test Video", "source_youtube_1"
 
 
 def test_ingest_youtube() -> None:
@@ -62,6 +62,7 @@ def _wait_for_job(client: TestClient, job_id: str) -> dict:
 def test_ingest_file_returns_202_and_job_ready() -> None:
     def processor(job: IngestJob) -> IngestJobResult:
         return IngestJobResult(
+            source_id="source_file_1",
             file_id="demo_file_1234",
             file_name=job.file_name,
             chunks_ingested=7,

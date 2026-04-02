@@ -29,6 +29,14 @@ class Settings:
             "UPLOAD_STAGING_DIR",
             os.path.join(tempfile.gettempdir(), "tailored_ai_uploads"),
         )
+        self.sources_db_path = os.getenv(
+            "SOURCES_DB_PATH",
+            os.path.join(tempfile.gettempdir(), "tailored_ai_sources.sqlite3"),
+        )
+        self.source_reconcile_interval_seconds = _parse_int(
+            os.getenv("SOURCE_RECONCILE_INTERVAL_SECONDS"),
+            6 * 60 * 60,
+        )
 
 
 settings = Settings()
