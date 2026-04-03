@@ -116,7 +116,7 @@ The frontend will be available at `http://127.0.0.1:5173`.
 
 ## Environment Variables
 
-Document the variables inline for now so a new developer can get running without depending on an unconfirmed example env file.
+Create your own .env files and add in these variables. Specifically the required ones.
 
 ### Required for Core AI Flow
 
@@ -200,34 +200,3 @@ poetry run python -m mcp_server.server
 
 The MCP server exposes read-only access to Tailored.ai chat threads, messages, and cited sources for external MCP clients.
 
-## API Examples
-
-### Health Check
-
-```bash
-curl -s http://127.0.0.1:8000/health
-```
-
-### Create a Chat Session
-
-```bash
-curl -s -X POST http://127.0.0.1:8000/chat/sessions \
-  -H "Content-Type: application/json" \
-  -d '{"user_id":"default_user","model":"gpt-4o-mini"}'
-```
-
-### Ingest a YouTube Video
-
-```bash
-curl -s -X POST http://127.0.0.1:8000/ingest/youtube \
-  -H "Content-Type: application/json" \
-  -d '{"user_id":"default_user","url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","video_title":"Example Video"}'
-```
-
-### Send a Chat Message
-
-```bash
-curl -s -X POST http://127.0.0.1:8000/chat/message \
-  -H "Content-Type: application/json" \
-  -d '{"session_id":"<session_id_from_chat_sessions>","message":"What does this video say about the main topic?"}'
-```
