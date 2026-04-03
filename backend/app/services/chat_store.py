@@ -40,6 +40,7 @@ class ChatMessageRecord:
     role: str
     content: str
     sources: list[dict]
+    action: dict | None
     prompt_tokens: int | None
     completion_tokens: int | None
     total_tokens: int | None
@@ -86,6 +87,7 @@ class ChatStore:
                     role TEXT NOT NULL,
                     content TEXT NOT NULL,
                     sources_json TEXT NOT NULL DEFAULT '[]',
+                    action_json TEXT,
                     prompt_tokens INTEGER,
                     completion_tokens INTEGER,
                     total_tokens INTEGER,
@@ -97,6 +99,7 @@ class ChatStore:
             self._ensure_column(conn, "chat_messages", "prompt_tokens", "INTEGER")
             self._ensure_column(conn, "chat_messages", "completion_tokens", "INTEGER")
             self._ensure_column(conn, "chat_messages", "total_tokens", "INTEGER")
+            self._ensure_column(conn, "chat_messages", "action_json", "TEXT")
             conn.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_chat_messages_session_created
@@ -234,6 +237,7 @@ class ChatStore:
         role: str,
         content: str,
         sources: list[dict] | None = None,
+        action: dict | None = None,
         prompt_tokens: int | None = None,
         completion_tokens: int | None = None,
         total_tokens: int | None = None,
@@ -241,6 +245,7 @@ class ChatStore:
         now = _utc_now_iso()
         message_id = uuid4().hex
         serialized_sources = json.dumps(sources or [])
+        serialized_action = json.dumps(action) if action is not None else None
         with self._lock:
             with self._connect() as conn:
                 conn.execute(
@@ -251,12 +256,13 @@ class ChatStore:
                         role,
                         content,
                         sources_json,
+                        action_json,
                         prompt_tokens,
                         completion_tokens,
                         total_tokens,
                         created_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         message_id,
@@ -264,6 +270,7 @@ class ChatStore:
                         role,
                         content,
                         serialized_sources,
+                        serialized_action,
                         prompt_tokens,
                         completion_tokens,
                         total_tokens,
@@ -284,6 +291,7 @@ class ChatStore:
             role=role,
             content=content,
             sources=sources or [],
+            action=action,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             total_tokens=total_tokens,
@@ -300,6 +308,7 @@ class ChatStore:
                     role,
                     content,
                     sources_json,
+                    action_json,
                     prompt_tokens,
                     completion_tokens,
                     total_tokens,
@@ -345,12 +354,17 @@ class ChatStore:
             sources = json.loads(row["sources_json"]) if row["sources_json"] else []
         except json.JSONDecodeError:
             sources = []
+        try:
+            action = json.loads(row["action_json"]) if row["action_json"] else None
+        except json.JSONDecodeError:
+            action = None
         return ChatMessageRecord(
             id=row["id"],
             session_id=row["session_id"],
             role=row["role"],
             content=row["content"],
             sources=sources,
+            action=action,
             prompt_tokens=row["prompt_tokens"],
             completion_tokens=row["completion_tokens"],
             total_tokens=row["total_tokens"],

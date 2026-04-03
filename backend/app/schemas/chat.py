@@ -18,6 +18,13 @@ class TokenUsage(BaseModel):
     total_tokens: int
 
 
+class AssistantAction(BaseModel):
+    type: str
+    label: str
+    url: str
+    pending_action_id: str | None = None
+
+
 class CreateSessionRequest(BaseModel):
     user_id: str
     model: str = "gpt-4o-mini"
@@ -47,6 +54,7 @@ class SessionMessage(BaseModel):
     content: str
     sources: list[Source] = []
     usage: TokenUsage | None = None
+    action: AssistantAction | None = None
 
 
 class SessionListResponse(BaseModel):
@@ -72,6 +80,7 @@ class ChatMessageResponse(BaseModel):
     sources: list[Source]
     usage: TokenUsage | None = None
     thread_usage: TokenUsage | None = None
+    action: AssistantAction | None = None
 
 
 class ChatModelItem(BaseModel):

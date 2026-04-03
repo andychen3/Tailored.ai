@@ -20,6 +20,7 @@ function App() {
     isAddingSource,
     deletingSourceId,
     isSendingMessage,
+    isDisconnectingNotion,
     deletingSessionId,
     requestError,
     availableModels,
@@ -37,6 +38,8 @@ function App() {
     deleteSource,
     uploadFile,
     sendMessage,
+    handleAssistantAction,
+    handleDisconnectNotion,
     startNewChat,
     selectSession,
     deleteSession,
@@ -56,11 +59,13 @@ function App() {
       <Sidebar
         isOpen={isNavOpen}
         canStartChat={hasReadySource}
+        isDisconnectingNotion={isDisconnectingNotion}
         sessions={sessions}
         currentSessionId={currentSessionId}
         deletingSessionId={deletingSessionId}
         onToggle={toggleNav}
         onNewChat={startNewChat}
+        onDisconnectNotion={handleDisconnectNotion}
         onSelectSession={selectSession}
         onDeleteSession={deleteSession}
       />
@@ -83,6 +88,7 @@ function App() {
         onSelectModel={setSelectedModel}
         onSendMessage={sendMessage}
         onToggleDrawer={toggleDrawer}
+        onAssistantAction={handleAssistantAction}
       />
 
       <SourcesDrawer

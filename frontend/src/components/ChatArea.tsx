@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 
 import { EMPTY_STATE_CONTENT, EMPTY_STATE_STEPS } from "../constants/chatUi";
 import type { ChatMessage, TokenUsage } from "../types/chat";
+import { toApiUrl } from "../lib/api";
 
 type ChatAreaProps = {
   title: string;
@@ -21,6 +22,7 @@ type ChatAreaProps = {
   onSelectModel: (model: string) => void;
   onSendMessage: () => void;
   onToggleDrawer: () => void;
+  onAssistantAction: (message: ChatMessage) => void;
 };
 
 export function ChatArea({
@@ -41,6 +43,7 @@ export function ChatArea({
   onSelectModel,
   onSendMessage,
   onToggleDrawer,
+  onAssistantAction,
 }: ChatAreaProps) {
   const messagesRef = useRef<HTMLDivElement>(null);
 
@@ -257,6 +260,21 @@ export function ChatArea({
                           </span>
                         );
                       })}
+                    </div>
+                  ) : null}
+
+                  {message.action && message.role === "assistant" ? (
+                    <div className="mt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onAssistantAction(message);
+                          window.location.assign(toApiUrl(message.action?.url ?? ""));
+                        }}
+                        className="inline-flex items-center rounded-full border border-accentBorder bg-accentBg px-3 py-1.5 text-xs font-medium text-accent transition hover:bg-[#5b6af033]"
+                      >
+                        {message.action.label}
+                      </button>
                     </div>
                   ) : null}
                 </div>

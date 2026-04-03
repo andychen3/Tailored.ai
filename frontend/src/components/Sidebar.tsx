@@ -3,11 +3,13 @@ import type { ChatSession } from "../types/chat";
 type SidebarProps = {
   isOpen: boolean;
   canStartChat: boolean;
+  isDisconnectingNotion: boolean;
   sessions: ChatSession[];
   currentSessionId: string | null;
   deletingSessionId: string | null;
   onToggle: () => void;
   onNewChat: () => void;
+  onDisconnectNotion: () => void;
   onSelectSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string) => void;
 };
@@ -15,11 +17,13 @@ type SidebarProps = {
 export function Sidebar({
   isOpen,
   canStartChat,
+  isDisconnectingNotion,
   sessions,
   currentSessionId,
   deletingSessionId,
   onToggle,
   onNewChat,
+  onDisconnectNotion,
   onSelectSession,
   onDeleteSession,
 }: SidebarProps) {
@@ -88,6 +92,37 @@ export function Sidebar({
             <path d="M6.5 1.5v10M1.5 6.5h10" />
           </svg>
           <span className={isOpen ? "opacity-100" : "hidden"}>New chat</span>
+        </button>
+        <button
+          className={[
+            "mt-2 flex w-full items-center gap-2 rounded-card border px-2.5 py-2 text-left text-[13px] transition",
+            "cursor-pointer border-border2 bg-bg3 text-text hover:bg-bg4",
+            !isOpen ? "justify-center px-2" : "",
+            isDisconnectingNotion ? "opacity-60" : "",
+          ].join(" ")}
+          disabled={isDisconnectingNotion}
+          onClick={onDisconnectNotion}
+          type="button"
+        >
+          {isDisconnectingNotion ? (
+            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+          ) : (
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 13 13"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M5 2.5h-2a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2" />
+              <path d="M8 9.5 11 6.5 8 3.5" />
+              <path d="M11 6.5H5" />
+            </svg>
+          )}
+          <span className={isOpen ? "opacity-100" : "hidden"}>Disconnect Notion</span>
         </button>
       </div>
 

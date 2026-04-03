@@ -39,6 +39,12 @@ export default defineConfig({
         timeout: largeUploadTimeoutMs,
         proxyTimeout: largeUploadTimeoutMs,
       },
+      '/integrations': {
+        target: apiProxyTarget,
+        changeOrigin: true,
+        timeout: largeUploadTimeoutMs,
+        proxyTimeout: largeUploadTimeoutMs,
+      },
     },
   },
 })

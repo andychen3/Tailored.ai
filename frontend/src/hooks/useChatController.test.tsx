@@ -7,7 +7,6 @@ type SendMessageStreamHandlers = {
   onDelta?: (delta: string) => void;
   onCompletion?: (result: {
     reply: string;
-    has_context: boolean;
     sources: Array<{
       title: string;
       timestamp: string;
@@ -95,13 +94,9 @@ describe("useChatController streaming lifecycle", () => {
         return {
           session: {
             session_id: "session_2",
-            user_id: "default_user",
             title: "Second thread",
             model: "gpt-4o-mini",
             created_at: "2026-04-01T13:00:00.000Z",
-            updated_at: "2026-04-01T13:00:00.000Z",
-            last_message_at: null,
-            message_count: 2,
             prompt_tokens_total: 5,
             completion_tokens_total: 9,
             total_tokens_total: 14,
@@ -131,7 +126,6 @@ describe("useChatController streaming lifecycle", () => {
                 completion_tokens: 9,
                 total_tokens: 14,
               },
-              created_at: "2026-04-01T13:00:01.000Z",
             },
           ],
         };
@@ -140,13 +134,9 @@ describe("useChatController streaming lifecycle", () => {
       return {
         session: {
           session_id: "session_1",
-          user_id: "default_user",
           title: "Hello",
           model: "gpt-4o-mini",
           created_at: "2026-04-01T12:00:00.000Z",
-          updated_at: "2026-04-01T12:00:00.000Z",
-          last_message_at: null,
-          message_count: 2,
           prompt_tokens_total: 11,
           completion_tokens_total: 7,
           total_tokens_total: 18,
@@ -176,7 +166,6 @@ describe("useChatController streaming lifecycle", () => {
               completion_tokens: 7,
               total_tokens: 18,
             },
-            created_at: "2026-04-01T12:00:01.000Z",
           },
         ],
       };
@@ -207,12 +196,11 @@ describe("useChatController streaming lifecycle", () => {
       chunks_ingested: 3,
     });
     mockedApi.listModels.mockResolvedValue([
-      { id: "gpt-4o-mini", label: "gpt-4o-mini", max_context_tokens: 128000 },
+      { id: "gpt-4o-mini", max_context_tokens: 128000 },
     ]);
     mockedApi.listSources.mockResolvedValue([
       {
         source_id: "source_1",
-        user_id: "default_user",
         source_type: "youtube",
         title: "Demo Video",
         source_url: "https://www.youtube.com/watch?v=abc123",
@@ -220,15 +208,11 @@ describe("useChatController streaming lifecycle", () => {
         file_id: null,
         expected_chunk_count: 3,
         sync_status: "in_sync",
-        last_verified_at: "2026-04-01T12:00:00.000Z",
-        created_at: "2026-04-01T12:00:00.000Z",
-        updated_at: "2026-04-01T12:00:00.000Z",
       },
     ]);
     mockedApi.listSessions.mockResolvedValue([]);
     mockedApi.sendMessage.mockResolvedValue({
       reply: "Echo: hello",
-      has_context: true,
       sources: [],
       usage: null,
       thread_usage: null,
@@ -246,7 +230,6 @@ describe("useChatController streaming lifecycle", () => {
     const deferred = createDeferred();
     const completion = {
       reply: "Echo: hello",
-      has_context: true,
       sources: [
         {
           title: "Demo Video",
@@ -381,26 +364,18 @@ describe("useChatController streaming lifecycle", () => {
     mockedApi.listSessions.mockResolvedValue([
       {
         session_id: "session_1",
-        user_id: "default_user",
         title: "Hello",
         model: "gpt-4o-mini",
         created_at: "2026-04-01T12:00:00.000Z",
-        updated_at: "2026-04-01T12:00:00.000Z",
-        last_message_at: "2026-04-01T12:00:01.000Z",
-        message_count: 2,
         prompt_tokens_total: 11,
         completion_tokens_total: 7,
         total_tokens_total: 18,
       },
       {
         session_id: "session_2",
-        user_id: "default_user",
         title: "Second thread",
         model: "gpt-4o-mini",
         created_at: "2026-04-01T13:00:00.000Z",
-        updated_at: "2026-04-01T13:00:00.000Z",
-        last_message_at: "2026-04-01T13:00:01.000Z",
-        message_count: 2,
         prompt_tokens_total: 5,
         completion_tokens_total: 9,
         total_tokens_total: 14,
@@ -476,13 +451,9 @@ describe("useChatController streaming lifecycle", () => {
     mockedApi.listSessions.mockResolvedValue([
       {
         session_id: "session_2",
-        user_id: "default_user",
         title: "Second thread",
         model: "gpt-4o",
         created_at: "2026-04-01T13:00:00.000Z",
-        updated_at: "2026-04-01T13:00:00.000Z",
-        last_message_at: "2026-04-01T13:00:01.000Z",
-        message_count: 2,
         prompt_tokens_total: 5,
         completion_tokens_total: 9,
         total_tokens_total: 14,
@@ -494,13 +465,9 @@ describe("useChatController streaming lifecycle", () => {
         return {
           session: {
             session_id: "session_2",
-            user_id: "default_user",
             title: "Second thread",
             model: "gpt-4o",
             created_at: "2026-04-01T13:00:00.000Z",
-            updated_at: "2026-04-01T13:00:00.000Z",
-            last_message_at: null,
-            message_count: 2,
             prompt_tokens_total: 5,
             completion_tokens_total: 9,
             total_tokens_total: 14,
@@ -512,7 +479,6 @@ describe("useChatController streaming lifecycle", () => {
               content: "tell me more",
               sources: [],
               usage: null,
-              created_at: "2026-04-01T13:00:00.000Z",
             },
             {
               id: "s2_ai",
@@ -520,7 +486,6 @@ describe("useChatController streaming lifecycle", () => {
               content: "Second thread answer",
               sources: [],
               usage: null,
-              created_at: "2026-04-01T13:00:01.000Z",
             },
           ],
         };
@@ -529,13 +494,9 @@ describe("useChatController streaming lifecycle", () => {
       return {
         session: {
           session_id: "session_new",
-          user_id: "default_user",
           title: "New chat",
           model: "gpt-4o",
           created_at: "2026-04-01T14:00:00.000Z",
-          updated_at: "2026-04-01T14:00:00.000Z",
-          last_message_at: null,
-          message_count: 0,
           prompt_tokens_total: 0,
           completion_tokens_total: 0,
           total_tokens_total: 0,
@@ -592,26 +553,18 @@ describe("useChatController streaming lifecycle", () => {
     mockedApi.listSessions.mockResolvedValue([
       {
         session_id: "session_1",
-        user_id: "default_user",
         title: "Hello",
         model: "gpt-4o-mini",
         created_at: "2026-04-01T12:00:00.000Z",
-        updated_at: "2026-04-01T12:00:00.000Z",
-        last_message_at: "2026-04-01T12:00:01.000Z",
-        message_count: 2,
         prompt_tokens_total: 11,
         completion_tokens_total: 7,
         total_tokens_total: 18,
       },
       {
         session_id: "session_2",
-        user_id: "default_user",
         title: "Second thread",
         model: "gpt-4o-mini",
         created_at: "2026-04-01T13:00:00.000Z",
-        updated_at: "2026-04-01T13:00:00.000Z",
-        last_message_at: "2026-04-01T13:00:01.000Z",
-        message_count: 2,
         prompt_tokens_total: 5,
         completion_tokens_total: 9,
         total_tokens_total: 14,
@@ -644,26 +597,18 @@ describe("useChatController streaming lifecycle", () => {
     mockedApi.listSessions.mockResolvedValue([
       {
         session_id: "session_1",
-        user_id: "default_user",
         title: "Hello",
         model: "gpt-4o-mini",
         created_at: "2026-04-01T12:00:00.000Z",
-        updated_at: "2026-04-01T12:00:00.000Z",
-        last_message_at: "2026-04-01T12:00:01.000Z",
-        message_count: 2,
         prompt_tokens_total: 11,
         completion_tokens_total: 7,
         total_tokens_total: 18,
       },
       {
         session_id: "session_2",
-        user_id: "default_user",
         title: "Second thread",
         model: "gpt-4o-mini",
         created_at: "2026-04-01T13:00:00.000Z",
-        updated_at: "2026-04-01T13:00:00.000Z",
-        last_message_at: "2026-04-01T13:00:01.000Z",
-        message_count: 2,
         prompt_tokens_total: 5,
         completion_tokens_total: 9,
         total_tokens_total: 14,
@@ -696,13 +641,9 @@ describe("useChatController streaming lifecycle", () => {
     mockedApi.listSessions.mockResolvedValue([
       {
         session_id: "session_1",
-        user_id: "default_user",
         title: "Hello",
         model: "gpt-4o-mini",
         created_at: "2026-04-01T12:00:00.000Z",
-        updated_at: "2026-04-01T12:00:00.000Z",
-        last_message_at: "2026-04-01T12:00:01.000Z",
-        message_count: 2,
         prompt_tokens_total: 11,
         completion_tokens_total: 7,
         total_tokens_total: 18,

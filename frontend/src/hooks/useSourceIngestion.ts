@@ -86,7 +86,6 @@ export function useSourceIngestion(
               sourceId,
               persistentSourceId: job.source_id ?? undefined,
               chunks: job.chunks_ingested ?? 0,
-              videoId: "",
               title: job.file_name,
               fileId: job.file_id ?? undefined,
               sourceType: job.source_type as SourceType,

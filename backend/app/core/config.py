@@ -69,6 +69,7 @@ class Settings:
     def __init__(self) -> None:
         self.app_title = os.getenv("APP_TITLE", "Tailored AI API")
         self.cors_origins = _parse_cors_origins(os.getenv("CORS_ORIGINS"))
+        self.frontend_app_url = os.getenv("FRONTEND_APP_URL", "http://localhost:5173")
         self.max_file_bytes = _parse_int(
             os.getenv("MAX_FILE_BYTES"),
             3 * 1024 * 1024 * 1024,
@@ -85,6 +86,10 @@ class Settings:
             "CHAT_DB_PATH",
             os.path.join(tempfile.gettempdir(), "tailored_ai_chat.sqlite3"),
         )
+        self.integration_db_path = os.getenv(
+            "INTEGRATION_DB_PATH",
+            self.chat_db_path,
+        )
         self.chat_allowed_models = _parse_csv(
             os.getenv("CHAT_ALLOWED_MODELS"),
             ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4.1"],
@@ -96,6 +101,22 @@ class Settings:
         self.source_reconcile_interval_seconds = _parse_int(
             os.getenv("SOURCE_RECONCILE_INTERVAL_SECONDS"),
             6 * 60 * 60,
+        )
+        self.notion_mcp_server_url = os.getenv(
+            "NOTION_MCP_SERVER_URL",
+            "https://mcp.notion.com/mcp",
+        )
+        self.notion_mcp_sse_url = os.getenv(
+            "NOTION_MCP_SSE_URL",
+            "https://mcp.notion.com/sse",
+        )
+        self.notion_conversation_notes_page_id = os.getenv(
+            "NOTION_CONVERSATION_NOTES_PAGE_ID",
+            "",
+        )
+        self.notion_oauth_redirect_path = os.getenv(
+            "NOTION_OAUTH_REDIRECT_PATH",
+            "/integrations/notion/callback",
         )
 
 

@@ -1,21 +1,21 @@
 import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 
 import { DEFAULT_SESSION_TITLE } from "../constants/chatUi";
-import { listModels } from "../lib/api";
+import { DEFAULT_USER_ID, ZERO_USAGE } from "../constants/chatRuntime";
+import { disconnectNotion, listModels, toUserFacingError } from "../lib/api";
 import { chatReducer, createInitialChatState } from "../state/chatReducer";
 import { useSourceIngestion } from "./useSourceIngestion";
 import { useSendMessage } from "./useSendMessage";
 import { useSessionManager } from "./useSessionManager";
 
-const DEFAULT_USER_ID = import.meta.env.VITE_DEFAULT_USER_ID ?? "default_user";
 const DEFAULT_MODEL = import.meta.env.VITE_OPENAI_MODEL ?? "gpt-4o-mini";
-const ZERO_USAGE = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
 
 export function useChatController() {
   const initialIsLarge = typeof window !== "undefined" ? window.innerWidth >= 1024 : true;
 
   const [state, dispatch] = useReducer(chatReducer, initialIsLarge, createInitialChatState);
   const [requestError, setRequestError] = useState<string | null>(null);
+  const [isDisconnectingNotion, setIsDisconnectingNotion] = useState(false);
   const [availableModels, setAvailableModels] = useState<string[]>([DEFAULT_MODEL]);
   const [modelTokenLimits, setModelTokenLimits] = useState<Record<string, number>>({});
   const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL);
@@ -140,6 +140,10 @@ export function useChatController() {
     dispatch({ type: "CLOSE_PANELS" });
   }, []);
 
+  const handleAssistantAction = useCallback(() => {
+    setRequestError(null);
+  }, []);
+
   const setUrlInput = useCallback((value: string) => {
     dispatch({ type: "SET_URL_INPUT", value });
   }, []);
@@ -154,6 +158,41 @@ export function useChatController() {
       dispatch({ type: "CLOSE_PANELS" });
     }
   }, [startNewChatBase, state.isLargeScreen]);
+
+  const handleDisconnectNotion = useCallback(async () => {
+    setIsDisconnectingNotion(true);
+    try {
+      await disconnectNotion(DEFAULT_USER_ID);
+      setRequestError(null);
+    } catch (error) {
+      setRequestError(toUserFacingError(error, "Failed to disconnect Notion."));
+    } finally {
+      setIsDisconnectingNotion(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || state.sessions.length === 0) {
+      return;
+    }
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get("session_id");
+    const notionStatus = params.get("notion");
+    const detail = params.get("detail");
+    if (!sessionId || !notionStatus) {
+      return;
+    }
+
+    void (async () => {
+      await selectSession(sessionId);
+      if (notionStatus === "error" && detail) {
+        setRequestError(detail);
+      } else if (notionStatus === "success") {
+        setRequestError(null);
+      }
+      window.history.replaceState({}, document.title, window.location.pathname);
+    })();
+  }, [selectSession, setRequestError, state.sessions.length]);
 
   return {
     isLargeScreen: state.isLargeScreen,
@@ -171,6 +210,7 @@ export function useChatController() {
     isAddingSource,
     deletingSourceId,
     isSendingMessage,
+    isDisconnectingNotion,
     deletingSessionId,
     requestError,
     availableModels,
@@ -188,6 +228,8 @@ export function useChatController() {
     deleteSource,
     uploadFile,
     sendMessage,
+    handleAssistantAction,
+    handleDisconnectNotion,
     startNewChat,
     selectSession,
     deleteSession,

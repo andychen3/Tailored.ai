@@ -32,6 +32,13 @@ export interface TokenUsage {
   totalTokens: number;
 }
 
+export interface AssistantAction {
+  type: string;
+  label: string;
+  url: string;
+  pendingActionId?: string;
+}
+
 export type MessageRole = "user" | "assistant";
 
 export interface ChatMessage {
@@ -39,6 +46,7 @@ export interface ChatMessage {
   role: MessageRole;
   text: string;
   chips?: SourceChip[];
+  action?: AssistantAction;
   usage?: TokenUsage;
   isStreaming?: boolean;
 }
