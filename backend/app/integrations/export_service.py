@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 
+from app.chat.openai_client import build_openai_client
+from app.chat.prompts import USER_MESSAGE_SUMMARIZE_PROMPT
 from app.core.config import settings
 from app.integrations.local_thread_client import LocalTailoredMCPClient
 from app.integrations.notion_client import (
@@ -14,6 +16,52 @@ from app.integrations.store import IntegrationStore, PendingChatAction
 from app.services.chat_store import ChatStore
 
 logger = logging.getLogger(__name__)
+
+def _timestamp_to_seconds(timestamp: str) -> int | None:
+    """Convert 'M:SS' or 'H:MM:SS' to total seconds for YouTube ?t= param."""
+    parts = timestamp.split(":")
+    try:
+        if len(parts) == 2:
+            return int(parts[0]) * 60 + int(parts[1])
+        if len(parts) == 3:
+            return (
+                int(parts[0]) * 3600
+                + int(parts[1]) * 60
+                + int(parts[2])
+            )
+    except ValueError:
+        pass
+    return None
+
+
+_SUMMARIZE_MODEL = "gpt-4o-mini"
+_SUMMARIZE_MIN_LENGTH = 200
+
+
+def _summarize_user_message(
+    client,
+    content: str,
+) -> str:
+    if len(content) < _SUMMARIZE_MIN_LENGTH:
+        return content
+    try:
+        response = client.chat.completions.create(
+            model=_SUMMARIZE_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": USER_MESSAGE_SUMMARIZE_PROMPT,
+                },
+                {"role": "user", "content": content},
+            ],
+        )
+        result = (
+            response.choices[0].message.content or ""
+        ).strip()
+        return result if result else content
+    except Exception:
+        logger.exception("User message summarization failed")
+        return content
 
 
 @dataclass(slots=True)
@@ -76,6 +124,7 @@ class NotionExportService:
         try:
             bundle = self._thread_client.get_thread_bundle(pending_action.session_id)
             page_title = self._extract_title(bundle)
+            bundle = self._summarize_user_messages(bundle)
             markdown = self._render_conversation(bundle)
             configured_parent_id = settings.notion_conversation_notes_page_id.strip()
             parent_id = configured_parent_id
@@ -150,6 +199,27 @@ class NotionExportService:
             self._integration_store.update_pending_action_status(pending_action.id, "failed")
             raise
 
+    def _summarize_user_messages(
+        self, bundle: dict[str, object]
+    ) -> dict[str, object]:
+        client = build_openai_client()
+        new_messages = []
+        for msg in bundle.get("messages") or []:
+            if (
+                isinstance(msg, dict)
+                and msg.get("role") == "user"
+            ):
+                summarized = _summarize_user_message(
+                    client,
+                    str(msg.get("content") or ""),
+                )
+                new_messages.append(
+                    {**msg, "content": summarized}
+                )
+            else:
+                new_messages.append(msg)
+        return {**bundle, "messages": new_messages}
+
     def _extract_title(self, bundle: dict[str, object]) -> str:
         thread = bundle.get("thread") or {}
         title = str(thread.get("title") or "").strip()
@@ -165,7 +235,17 @@ class NotionExportService:
 
     def _render_conversation(self, bundle: dict[str, object]) -> str:
         messages = bundle.get("messages") or []
-        sources = bundle.get("sources") or []
+        raw_sources = bundle.get("sources") or []
+
+        # Group sources by message_id so each response shows only its own sources
+        sources_by_message: dict[str, list[dict]] = {}
+        for src in raw_sources:
+            if not isinstance(src, dict):
+                continue
+            mid = str(src.get("message_id") or "")
+            if mid:
+                sources_by_message.setdefault(mid, []).append(src)
+
         sections: list[str] = []
         for msg in messages:
             if not isinstance(msg, dict):
@@ -177,23 +257,39 @@ class NotionExportService:
             if role == "user":
                 sections.append(f"**User**\n\n{content}")
             elif role == "assistant":
-                sections.append(f"**Response**\n\n{content}")
-        if sources:
-            seen: set[str] = set()
-            source_lines: list[str] = []
-            for src in sources:
-                if not isinstance(src, dict):
-                    continue
-                source_title = str(src.get("title") or "").strip()
-                if source_title and source_title not in seen:
-                    seen.add(source_title)
-                    url = src.get("url")
+                msg_id = str(msg.get("id") or "")
+                msg_sources = sources_by_message.get(msg_id, [])
+                source_lines: list[str] = []
+                seen: set[str] = set()
+                for src in msg_sources:
+                    source_title = str(src.get("title") or "").strip()
+                    timestamp = str(src.get("timestamp") or "").strip()
+                    if not source_title:
+                        continue
+                    label = (
+                        f"{source_title} @ {timestamp}"
+                        if timestamp
+                        else source_title
+                    )
+                    if label in seen:
+                        continue
+                    seen.add(label)
+                    url = src.get("url") or ""
+                    if url and timestamp:
+                        secs = _timestamp_to_seconds(timestamp)
+                        if secs is not None:
+                            sep = "&" if "?" in url else "?"
+                            url = f"{url}{sep}t={secs}"
                     if url:
-                        source_lines.append(f"- [{source_title}]({url})")
+                        source_lines.append(f"- [{label}]({url})")
                     else:
-                        source_lines.append(f"- {source_title}")
-            if source_lines:
-                sections.append("## Sources\n\n" + "\n".join(source_lines))
+                        source_lines.append(f"- {label}")
+                block = f"**Response**\n\n{content}"
+                if source_lines:
+                    block += "\n\n**Sources**\n\n" + "\n".join(
+                        source_lines
+                    )
+                sections.append(block)
         return "\n\n---\n\n".join(sections)
 
     def _extract_page_url(self, payload: dict[str, object]) -> str | None:

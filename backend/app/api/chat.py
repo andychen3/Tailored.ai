@@ -467,7 +467,7 @@ def stream_message(
                         session_id=payload.session_id,
                         reply=result.message,
                         sources=[],
-                        usage=result.usage,
+                        usage=None,
                     ),
                 )
             except Exception as exc:

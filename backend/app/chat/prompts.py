@@ -43,3 +43,15 @@ Rules:
 - Do not add facts or terms not supported by the conversation.
 - Preserve important nouns, entities, file names, source names, and time qualifiers.
 - Keep the rewrite concise and specific."""
+
+
+USER_MESSAGE_SUMMARIZE_PROMPT = """Summarize the following user message to capture its intent and main points.
+
+Rules:
+- Preserve all specific details: names, numbers, dates, URLs, technical terms, and explicit requests.
+- Keep the summary in first person as if the user wrote it.
+- If the message is already concise (a simple question or short request), return it unchanged.
+- Do not add information that was not in the original message.
+- Do not strip context that would be needed to understand what the user is asking.
+- Aim for roughly 30-50% reduction in length for longer messages. Do not over-compress.
+- Return only the summarized text with no preamble or explanation."""
