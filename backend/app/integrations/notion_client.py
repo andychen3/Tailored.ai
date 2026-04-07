@@ -474,7 +474,20 @@ class RemoteNotionMCPClient:
         tool_name: str,
         arguments: dict[str, object],
     ) -> dict[str, object]:
-        return asyncio.run(self._call_tool_async(connection, tool_name=tool_name, arguments=arguments))
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            # No event loop running — safe to use asyncio.run()
+            return asyncio.run(self._call_tool_async(connection, tool_name=tool_name, arguments=arguments))
+
+        # Already in an event loop (e.g. FastAPI) — run in a separate thread
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(
+                asyncio.run,
+                self._call_tool_async(connection, tool_name=tool_name, arguments=arguments),
+            )
+            return future.result(timeout=60)
 
     def extract_page_reference(self, payload: dict[str, object]) -> dict[str, str | None]:
         page_url = self._deep_find_string(payload, ("url", "public_url"))

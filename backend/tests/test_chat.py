@@ -17,26 +17,60 @@ from app.rag.retriever import RAGRetriever
 from app.services.chat_store import ChatStore
 
 
+class _FakeAgentOpenAIClient:
+    """Minimal fake that returns a text response with no tool calls."""
+
+    class _Chat:
+        class _Completions:
+            def create(self, **kwargs):
+                last_msg = kwargs["messages"][-1]["content"]
+                msg = SimpleNamespace(
+                    content=f"Echo: {last_msg}",
+                    tool_calls=None,
+                )
+                usage = SimpleNamespace(prompt_tokens=11, completion_tokens=7, total_tokens=18)
+                return SimpleNamespace(
+                    choices=[SimpleNamespace(message=msg, finish_reason="stop")],
+                    usage=usage,
+                )
+
+        completions = _Completions()
+
+    chat = _Chat()
+
+
 class FakeChatManager:
     def __init__(self, model: str, user_id: str) -> None:
         self.model = model
         self.user_id = user_id
+        self.client = _FakeAgentOpenAIClient()
 
-    def answer_question(
+    def build_completion_request(
         self,
         user_input: str,
         history: list[dict[str, str]] | None = None,
-    ) -> tuple[str, list[dict], bool, dict[str, int] | None]:
-        return (
-            f"Echo: {user_input}",
-            [{"title": "Demo Video", "timestamp": "0:12"}],
-            True,
-            {
-                "prompt_tokens": 11,
-                "completion_tokens": 7,
-                "total_tokens": 18,
-            },
+    ) -> SimpleNamespace:
+        return SimpleNamespace(
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": user_input},
+            ],
+            sources=[{"title": "Demo Video", "timestamp": "0:12"}],
+            has_context=True,
         )
+
+    def build_base_messages(
+        self,
+        user_input: str,
+        history: list[dict[str, str]] | None = None,
+    ) -> list[dict[str, str]]:
+        return [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": user_input},
+        ]
+
+    def finalize_answer(self, raw_answer: str, sources: list[dict] | None = None) -> str:
+        return raw_answer.strip()
 
 
 class FakeStreamingChatManager(FakeChatManager):
@@ -48,41 +82,34 @@ class FakeStreamingChatManager(FakeChatManager):
             )
         )
 
-    def build_completion_request(
-        self,
-        user_input: str,
-        history: list[dict[str, str]] | None = None,
-    ) -> SimpleNamespace:
-        return SimpleNamespace(
-            messages=[{"role": "user", "content": user_input}],
-            sources=[{"title": "Demo Video", "timestamp": "0:12"}],
-            has_context=True,
-        )
-
-    def finalize_answer(self, raw_answer: str, sources: list[dict] | None = None) -> str:
-        return raw_answer.strip()
-
     def _create_stream(self, **kwargs):
-        assert kwargs["stream"] is True
-        assert kwargs["messages"]
-        return [
-            SimpleNamespace(
-                choices=[SimpleNamespace(delta=SimpleNamespace(content="Echo"))],
-                usage=None,
-            ),
-            SimpleNamespace(
-                choices=[SimpleNamespace(delta=SimpleNamespace(content=": hello"))],
-                usage=SimpleNamespace(
-                    prompt_tokens=11,
-                    completion_tokens=7,
-                    total_tokens=18,
+        if kwargs.get("stream"):
+            return [
+                SimpleNamespace(
+                    choices=[SimpleNamespace(delta=SimpleNamespace(content="Echo", tool_calls=None))],
+                    usage=None,
                 ),
-            ),
-        ]
+                SimpleNamespace(
+                    choices=[SimpleNamespace(delta=SimpleNamespace(content=": hello", tool_calls=None))],
+                    usage=SimpleNamespace(
+                        prompt_tokens=11,
+                        completion_tokens=7,
+                        total_tokens=18,
+                    ),
+                ),
+            ]
+        msg = SimpleNamespace(content="Echo: hello", tool_calls=None)
+        usage = SimpleNamespace(prompt_tokens=11, completion_tokens=7, total_tokens=18)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=msg, finish_reason="stop")],
+            usage=usage,
+        )
 
 
 class FailingStreamingChatManager(FakeStreamingChatManager):
     def _create_stream(self, **kwargs):
+        if kwargs.get("stream"):
+            raise RuntimeError("stream exploded")
         raise RuntimeError("stream exploded")
 
 
@@ -124,8 +151,20 @@ class FakeCompletionsClient:
             content = self.rewrite_outputs.pop(0)
         else:
             content = "Answer from context."
+
+        if kwargs.get("stream"):
+            return [
+                SimpleNamespace(
+                    choices=[SimpleNamespace(delta=SimpleNamespace(content=content, tool_calls=None))],
+                    usage=SimpleNamespace(prompt_tokens=11, completion_tokens=7, total_tokens=18),
+                ),
+            ]
+
         return SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content=content))],
+            choices=[SimpleNamespace(
+                message=SimpleNamespace(content=content, tool_calls=None),
+                finish_reason="stop",
+            )],
             usage=SimpleNamespace(
                 prompt_tokens=11,
                 completion_tokens=7,
@@ -334,8 +373,10 @@ def test_chat_message_normalizes_reply_citations_from_structured_sources(
             choices=[
                 SimpleNamespace(
                     message=SimpleNamespace(
-                        content="LLMs use learned weights.\nSource: Neural networks"
-                    )
+                        content="LLMs use learned weights.\nSource: Neural networks",
+                        tool_calls=None,
+                    ),
+                    finish_reason="stop",
                 )
             ],
             usage=SimpleNamespace(
@@ -549,12 +590,23 @@ def test_streaming_chat_normalizes_reply_and_persists_same_text(
             )
 
         def _create_stream(self, **kwargs):
-            assert kwargs["stream"] is True
+            if not kwargs.get("stream"):
+                msg = SimpleNamespace(
+                    content="Large language models work like this.\nSource: Neural networks",
+                    tool_calls=None,
+                )
+                return SimpleNamespace(
+                    choices=[SimpleNamespace(message=msg, finish_reason="stop")],
+                    usage=SimpleNamespace(prompt_tokens=11, completion_tokens=7, total_tokens=18),
+                )
             return [
                 SimpleNamespace(
                     choices=[
                         SimpleNamespace(
-                            delta=SimpleNamespace(content="Large language models work like this.\n")
+                            delta=SimpleNamespace(
+                                content="Large language models work like this.\n",
+                                tool_calls=None,
+                            )
                         )
                     ],
                     usage=None,
@@ -562,7 +614,10 @@ def test_streaming_chat_normalizes_reply_and_persists_same_text(
                 SimpleNamespace(
                     choices=[
                         SimpleNamespace(
-                            delta=SimpleNamespace(content="Source: Neural networks")
+                            delta=SimpleNamespace(
+                                content="Source: Neural networks",
+                                tool_calls=None,
+                            )
                         )
                     ],
                     usage=SimpleNamespace(
@@ -888,7 +943,9 @@ def test_chat_api_returns_no_context_and_no_sources_for_unrelated_follow_up(
 
     assert second_response.status_code == 200
     assert second_response.json()["sources"] == []
-    assert "I couldn't find anything relevant" in second_response.json()["reply"]
+    # With the agent loop, the LLM is always called (even without RAG context)
+    # so it can still use tools. The response comes from the LLM, not a hardcoded message.
+    assert second_response.json()["reply"] != ""
     assert recorded_retrievers[-1].queries == ["What are large language models?"]
 
     detail_response = client.get(f"/chat/sessions/{session_id}")
@@ -960,7 +1017,8 @@ def test_streaming_chat_returns_no_context_without_sources_for_unrelated_follow_
         json.loads(payload) for event, payload in events if event == "completion"
     )
     assert completion_payload["sources"] == []
-    assert "I couldn't find anything relevant" in completion_payload["reply"]
+    # With the agent loop, the LLM is always called (even without RAG context)
+    assert completion_payload["reply"] != ""
 
     detail_response = client.get(f"/chat/sessions/{session_id}")
     detail_payload = detail_response.json()

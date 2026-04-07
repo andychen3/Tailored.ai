@@ -185,6 +185,30 @@ class ChatManager:
             has_context=True,
         )
 
+    def build_base_messages(
+        self,
+        user_input: str,
+        history: list[dict[str, str]] | None = None,
+    ) -> list[dict[str, str]]:
+        """Build messages with just the system prompt and history (no RAG context).
+
+        Used by the agent loop when RAG has no context but tools are available.
+        """
+        from app.chat.prompts import RAG_SYSTEM_PROMPT
+
+        messages: list[dict[str, str]] = [{"role": "system", "content": RAG_SYSTEM_PROMPT}]
+        for msg in (history or []):
+            messages.append({
+                "role": msg["role"],
+                "content": (
+                    self._strip_citations(msg["content"])
+                    if msg["role"] == "assistant"
+                    else msg["content"]
+                ),
+            })
+        messages.append({"role": "user", "content": user_input})
+        return messages
+
     def finalize_answer(self, raw_answer: str, sources: list[dict] | None = None) -> str:
         return finalize_answer_text(raw_answer, sources or [])
 

@@ -9,15 +9,6 @@ from app.integrations.store import IntegrationStore
 from app.services.chat_store import ChatStore
 
 
-class ExplodingChatManager:
-    def __init__(self, model: str, user_id: str) -> None:
-        self.model = model
-        self.user_id = user_id
-
-    def answer_question(self, user_input: str, history=None):
-        raise AssertionError("LLM path should not run for disconnected Notion export intent.")
-
-
 class FakeOAuthClient:
     def discover_oauth_metadata(self):
         return SimpleNamespace(
@@ -70,15 +61,6 @@ class FakeOAuthClient:
         )
 
 
-class FakeExportService:
-    def __init__(self) -> None:
-        self.calls: list[str] = []
-
-    def resume_pending_export(self, pending_action):
-        self.calls.append(pending_action.id)
-        return SimpleNamespace(message="Saved to Notion.")
-
-
 def _build_client(tmp_path, monkeypatch):
     chat_store = ChatStore(str(tmp_path / "chat.sqlite3"))
     integration_store = IntegrationStore(str(tmp_path / "integrations.sqlite3"))
@@ -86,74 +68,15 @@ def _build_client(tmp_path, monkeypatch):
     app.dependency_overrides[chat_api.get_integration_store] = lambda: integration_store
     app.dependency_overrides[integrations_api.get_chat_store] = lambda: chat_store
     app.dependency_overrides[integrations_api.get_integration_store] = lambda: integration_store
-    fake_export_service = FakeExportService()
-    monkeypatch.setattr(chat_api, "build_chat_manager", ExplodingChatManager)
-    monkeypatch.setattr(integrations_api, "build_notion_oauth_client", lambda: FakeOAuthClient())
-    monkeypatch.setattr(
-        integrations_api,
-        "build_export_service",
-        lambda chat_store, integration_store: fake_export_service,
-    )
-    return TestClient(app), chat_store, integration_store, fake_export_service
+    app.dependency_overrides[integrations_api.build_notion_oauth_client] = lambda: FakeOAuthClient()
+    return TestClient(app), chat_store, integration_store
 
 
-def test_notion_export_returns_connect_action_without_llm(tmp_path, monkeypatch) -> None:
-    client, chat_store, integration_store, _ = _build_client(tmp_path, monkeypatch)
-
-    session_id = client.post(
-        "/chat/sessions",
-        json={"user_id": "user_1", "model": "gpt-4o-mini"},
-    ).json()["session_id"]
-
-    response = client.post(
-        "/chat/message",
-        json={"session_id": session_id, "message": "summarize this thread into notion"},
-    )
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["reply"].startswith("I can save this thread to Notion")
-    assert payload["action"]["type"] == "connect_notion"
-    pending_id = payload["action"]["pending_action_id"]
-    pending = integration_store.get_pending_action(pending_id)
-    assert pending is not None
-    assert pending.status == "pending"
-
-    detail = client.get(f"/chat/sessions/{session_id}").json()
-    assert detail["messages"][-1]["action"]["pending_action_id"] == pending_id
-
-    app.dependency_overrides.clear()
-
-
-def test_streaming_notion_export_returns_connect_action(tmp_path, monkeypatch) -> None:
-    client, _, _, _ = _build_client(tmp_path, monkeypatch)
-
-    session_id = client.post(
-        "/chat/sessions",
-        json={"user_id": "user_1", "model": "gpt-4o-mini"},
-    ).json()["session_id"]
-
-    with client.stream(
-        "POST",
-        "/chat/message/stream",
-        json={"session_id": session_id, "message": "save this to notion"},
-    ) as response:
-        assert response.status_code == 200
-        body = "".join(
-            line.decode() if isinstance(line, bytes) else line
-            for line in response.iter_lines()
-        )
-
-    assert "connect_notion" in body
-    assert "Connect Notion" in body
-    app.dependency_overrides.clear()
-
-
-def test_notion_connect_builds_redirect_and_callback_resumes_export(
+def test_notion_connect_builds_redirect_and_callback_stores_connection(
     tmp_path,
     monkeypatch,
 ) -> None:
-    client, chat_store, integration_store, fake_export_service = _build_client(tmp_path, monkeypatch)
+    client, chat_store, integration_store = _build_client(tmp_path, monkeypatch)
 
     session_id = client.post(
         "/chat/sessions",
@@ -196,7 +119,16 @@ def test_notion_connect_builds_redirect_and_callback_resumes_export(
     )
     assert callback_response.status_code == 303
     assert "notion=success" in callback_response.headers["location"]
-    assert integration_store.get_notion_connection("user_1") is not None
-    assert fake_export_service.calls == [pending.id]
+
+    connection = integration_store.get_notion_connection("user_1")
+    assert connection is not None
+    assert connection.access_token == "access-token"
+
+    updated_pending = integration_store.get_pending_action(pending.id)
+    assert updated_pending is not None
+    assert updated_pending.status == "completed"
+
+    messages = chat_store.list_messages(session_id)
+    assert any("Notion is now connected" in m.content for m in messages)
 
     app.dependency_overrides.clear()

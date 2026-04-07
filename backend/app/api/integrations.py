@@ -8,12 +8,9 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 from app.core.config import settings
-from app.integrations.export_service import NotionExportService
-from app.integrations.local_thread_client import LocalTailoredMCPClient
 from app.integrations.notion_client import (
     NotionOAuthClient,
     NotionOAuthError,
-    RemoteNotionMCPClient,
     build_pkce_pair,
     build_state_token,
 )
@@ -37,23 +34,6 @@ def get_integration_store() -> IntegrationStore:
 
 def build_notion_oauth_client() -> NotionOAuthClient:
     return NotionOAuthClient()
-
-
-def build_notion_mcp_client() -> RemoteNotionMCPClient:
-    return RemoteNotionMCPClient()
-
-
-def build_export_service(
-    *,
-    chat_store: ChatStore,
-    integration_store: IntegrationStore,
-) -> NotionExportService:
-    return NotionExportService(
-        chat_store=chat_store,
-        integration_store=integration_store,
-        thread_client=LocalTailoredMCPClient(chat_store),
-        notion_client=build_notion_mcp_client(),
-    )
 
 
 def _frontend_redirect_url(*, session_id: str, status: str, detail: str | None = None) -> str:
@@ -174,11 +154,16 @@ def notion_callback(
             workspace_id=token_result.workspace_id,
             workspace_name=token_result.workspace_name,
         )
-        pending = store.get_pending_action(state_record.pending_action_id)
-        if pending is None:
-            raise RuntimeError("Pending action was not found.")
-        export_service = build_export_service(chat_store=chat_store, integration_store=store)
-        export_service.resume_pending_export(pending)
+        store.update_pending_action_status(state_record.pending_action_id, "completed")
+        chat_store.add_message(
+            session_id=state_record.session_id,
+            role="assistant",
+            content=(
+                "Notion is now connected! "
+                "You can ask me to save this conversation to Notion whenever you're ready."
+            ),
+            sources=[],
+        )
         return RedirectResponse(
             url=_frontend_redirect_url(session_id=state_record.session_id, status="success"),
             status_code=303,

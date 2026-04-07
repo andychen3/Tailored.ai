@@ -1,16 +1,14 @@
-import asyncio
 import json
 from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
-from app.chat.constants import NO_CONTEXT_MESSAGE
-from app.chat.openai_client import usage_to_dict
+from app.chat.agent_loop import run_agent_loop, run_agent_loop_stream
+from app.chat.prompts import AGENT_TOOL_INSTRUCTIONS, NO_CONTEXT_INSTRUCTION
+from app.chat.tool_executor import ToolExecutor
+from app.chat.tool_registry import get_tool_definitions
 from app.core.config import settings
-from app.integrations.export_service import NotionExportService
-from app.integrations.intent_router import detect_chat_intent
-from app.integrations.local_thread_client import LocalTailoredMCPClient
 from app.integrations.notion_client import RemoteNotionMCPClient
 from app.integrations.store import IntegrationStore, integration_store
 from app.schemas.chat import (
@@ -46,15 +44,20 @@ def build_chat_manager(*, model: str, user_id: str):
     return ChatManager(model=model, user_id=user_id)
 
 
-def build_notion_export_service(
+def _build_tool_executor(
     *,
+    request: Request,
+    session,
+    session_id: str,
     store: ChatStore,
     integrations: IntegrationStore,
-) -> NotionExportService:
-    return NotionExportService(
-        chat_store=store,
+) -> ToolExecutor:
+    return ToolExecutor(
+        user_id=session.user_id,
+        session_id=session_id,
+        base_url=str(request.base_url),
         integration_store=integrations,
-        thread_client=LocalTailoredMCPClient(store),
+        chat_store=store,
         notion_client=RemoteNotionMCPClient(),
     )
 
@@ -275,99 +278,49 @@ def send_message(
     integrations: IntegrationStore = Depends(get_integration_store),
 ) -> ChatMessageResponse:
     session, user_text, history, _ = _prepare_turn(payload=payload, store=store)
-    intent = detect_chat_intent(user_text)
-
-    if intent == "notion_export":
-        connection = integrations.get_notion_connection(session.user_id)
-        if connection is None:
-            pending = integrations.create_pending_action(
-                user_id=session.user_id,
-                session_id=payload.session_id,
-                action_type="notion_export",
-                original_message=user_text,
-            )
-            action = {
-                "type": "connect_notion",
-                "label": "Connect Notion",
-                "url": (
-                    f"{str(request.base_url).rstrip('/')}/integrations/notion/connect"
-                    f"?user_id={session.user_id}"
-                    f"&session_id={payload.session_id}"
-                    f"&pending_action_id={pending.id}"
-                ),
-                "pending_action_id": pending.id,
-            }
-            reply = (
-                "I can save this thread to Notion, but Notion isn't connected yet. "
-                "Connect your workspace first and I'll continue automatically."
-            )
-            _persist_assistant_turn(
-                store=store,
-                session_id=payload.session_id,
-                reply=reply,
-                sources=[],
-                action=action,
-            )
-            return ChatMessageResponse(
-                **_build_chat_response(
-                    store=store,
-                    session_id=payload.session_id,
-                    reply=reply,
-                    sources=[],
-                    usage=None,
-                    action=action,
-                )
-            )
-        pending = integrations.create_pending_action(
-            user_id=session.user_id,
-            session_id=payload.session_id,
-            action_type="notion_export",
-            original_message=user_text,
-        )
-        export_service = build_notion_export_service(store=store, integrations=integrations)
-        try:
-            result = export_service.resume_pending_export(pending)
-        except Exception as exc:
-            integrations.update_pending_action_status(pending.id, "failed")
-            reply = f"I couldn't finish the Notion export: {exc}"
-            _persist_assistant_turn(
-                store=store,
-                session_id=payload.session_id,
-                reply=reply,
-                sources=[],
-            )
-            return ChatMessageResponse(
-                **_build_chat_response(
-                    store=store,
-                    session_id=payload.session_id,
-                    reply=reply,
-                    sources=[],
-                    usage=None,
-                )
-            )
-        return ChatMessageResponse(
-            **_build_chat_response(
-                store=store,
-                session_id=payload.session_id,
-                reply=result.message,
-                sources=[],
-                usage=result.usage,
-            )
-        )
-
     manager = build_chat_manager(model=session.model, user_id=session.user_id)
+    completion_request = manager.build_completion_request(user_text, history=history)
+
+    tools = get_tool_definitions()
+    tool_executor = _build_tool_executor(
+        request=request,
+        session=session,
+        session_id=payload.session_id,
+        store=store,
+        integrations=integrations,
+    )
+
+    if completion_request.has_context:
+        messages = completion_request.messages
+    else:
+        messages = manager.build_base_messages(user_text, history=history)
+        messages.insert(1, {"role": "system", "content": NO_CONTEXT_INSTRUCTION})
+
+    messages.insert(1, {"role": "system", "content": AGENT_TOOL_INSTRUCTIONS})
 
     try:
-        reply, sources, _, usage = manager.answer_question(user_text, history=history)
+        result = run_agent_loop(
+            client=manager.client,
+            model=manager.model,
+            messages=messages,
+            tools=tools,
+            tool_executor=tool_executor,
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Chat request failed: {exc}") from exc
+
+    sources = completion_request.sources if completion_request.has_context else []
+    if result.used_tools:
+        sources = []
+    reply = manager.finalize_answer(result.reply, sources)
 
     _persist_assistant_turn(
         store=store,
         session_id=payload.session_id,
         reply=reply,
         sources=sources,
-        usage=usage,
+        usage=result.usage,
+        action=result.action,
     )
     return ChatMessageResponse(
         **_build_chat_response(
@@ -375,7 +328,8 @@ def send_message(
             session_id=payload.session_id,
             reply=reply,
             sources=sources,
-            usage=usage,
+            usage=result.usage,
+            action=result.action,
         )
     )
 
@@ -388,171 +342,64 @@ def stream_message(
     integrations: IntegrationStore = Depends(get_integration_store),
 ) -> StreamingResponse:
     session, user_text, history, _ = _prepare_turn(payload=payload, store=store)
-    intent = detect_chat_intent(user_text)
-
-    if intent == "notion_export":
-        connection = integrations.get_notion_connection(session.user_id)
-        if connection is None:
-            pending = integrations.create_pending_action(
-                user_id=session.user_id,
-                session_id=payload.session_id,
-                action_type="notion_export",
-                original_message=user_text,
-            )
-            action = {
-                "type": "connect_notion",
-                "label": "Connect Notion",
-                "url": (
-                    f"{str(request.base_url).rstrip('/')}/integrations/notion/connect"
-                    f"?user_id={session.user_id}"
-                    f"&session_id={payload.session_id}"
-                    f"&pending_action_id={pending.id}"
-                ),
-                "pending_action_id": pending.id,
-            }
-            reply = (
-                "I can save this thread to Notion, but Notion isn't connected yet. "
-                "Connect your workspace first and I'll continue automatically."
-            )
-
-            async def pending_connect_stream() -> AsyncIterator[str]:
-                assistant_record = _persist_assistant_turn(
-                    store=store,
-                    session_id=payload.session_id,
-                    reply=reply,
-                    sources=[],
-                    action=action,
-                )
-                yield _sse_event("delta", {"delta": reply})
-                yield _sse_event(
-                    "completion",
-                    _build_chat_response(
-                        store=store,
-                        session_id=payload.session_id,
-                        reply=reply,
-                        sources=[],
-                        usage=None,
-                        assistant_message_id=assistant_record.id,
-                        action=action,
-                    ),
-                )
-
-            return StreamingResponse(
-                pending_connect_stream(),
-                media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "X-Accel-Buffering": "no",
-                },
-            )
-        pending = integrations.create_pending_action(
-            user_id=session.user_id,
-            session_id=payload.session_id,
-            action_type="notion_export",
-            original_message=user_text,
-        )
-        export_service = build_notion_export_service(store=store, integrations=integrations)
-
-        async def export_stream() -> AsyncIterator[str]:
-            try:
-                result = await asyncio.to_thread(
-                    export_service.resume_pending_export,
-                    pending,
-                )
-                yield _sse_event("delta", {"delta": result.message})
-                yield _sse_event(
-                    "completion",
-                    _build_chat_response(
-                        store=store,
-                        session_id=payload.session_id,
-                        reply=result.message,
-                        sources=[],
-                        usage=None,
-                    ),
-                )
-            except Exception as exc:
-                integrations.update_pending_action_status(pending.id, "failed")
-                reply = f"I couldn't finish the Notion export: {exc}"
-                _persist_assistant_turn(
-                    store=store,
-                    session_id=payload.session_id,
-                    reply=reply,
-                    sources=[],
-                )
-                yield _sse_event("delta", {"delta": reply})
-                yield _sse_event(
-                    "completion",
-                    _build_chat_response(
-                        store=store,
-                        session_id=payload.session_id,
-                        reply=reply,
-                        sources=[],
-                        usage=None,
-                    ),
-                )
-
-        return StreamingResponse(
-            export_stream(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-            },
-        )
-
     manager = build_chat_manager(model=session.model, user_id=session.user_id)
     completion_request = manager.build_completion_request(user_text, history=history)
 
+    tools = get_tool_definitions()
+    tool_executor = _build_tool_executor(
+        request=request,
+        session=session,
+        session_id=payload.session_id,
+        store=store,
+        integrations=integrations,
+    )
+
+    if completion_request.has_context:
+        messages = completion_request.messages
+    else:
+        messages = manager.build_base_messages(user_text, history=history)
+        messages.insert(1, {"role": "system", "content": NO_CONTEXT_INSTRUCTION})
+
+    messages.insert(1, {"role": "system", "content": AGENT_TOOL_INSTRUCTIONS})
+
     async def event_stream() -> AsyncIterator[str]:
-        raw_answer = ""
-        usage_payload: dict[str, int] | None = None
-
         try:
-            if not completion_request.has_context:
-                cleaned_answer = manager.finalize_answer(NO_CONTEXT_MESSAGE, [])
-                assistant_record = _persist_assistant_turn(
-                    store=store,
-                    session_id=payload.session_id,
-                    reply=cleaned_answer,
-                    sources=[],
-                )
-                yield _sse_event("delta", {"delta": cleaned_answer})
-                yield _sse_event(
-                    "completion",
-                    _build_chat_response(
-                        store=store,
-                        session_id=payload.session_id,
-                        reply=cleaned_answer,
-                        sources=[],
-                        usage=None,
-                        assistant_message_id=assistant_record.id,
-                    ),
-                )
-                return
+            sources = completion_request.sources if completion_request.has_context else []
+            raw_reply = ""
+            final_usage = None
+            final_action = None
+            used_tools = False
 
-            response_stream = manager.client.chat.completions.create(
+            for event in run_agent_loop_stream(
+                client=manager.client,
                 model=manager.model,
-                messages=completion_request.messages,
-                stream=True,
-                stream_options={"include_usage": True},
-            )
+                messages=messages,
+                tools=tools,
+                tool_executor=tool_executor,
+            ):
+                if event.event_type == "delta":
+                    yield _sse_event("delta", event.data)
+                    raw_reply += event.data.get("delta", "")
 
-            for chunk in response_stream:
-                choice = chunk.choices[0] if chunk.choices else None
-                delta = getattr(choice.delta, "content", None) if choice is not None else None
-                if delta:
-                    raw_answer += delta
-                    yield _sse_event("delta", {"delta": delta})
+                elif event.event_type == "tool_call":
+                    used_tools = True
+                    yield _sse_event("tool_call", event.data)
 
-                usage_payload = usage_to_dict(getattr(chunk, "usage", None)) or usage_payload
+                elif event.event_type == "completion":
+                    raw_reply = event.data.get("reply", raw_reply)
+                    final_usage = event.data.get("usage")
+                    final_action = event.data.get("action")
 
-            cleaned_answer = manager.finalize_answer(raw_answer, completion_request.sources)
+            if used_tools:
+                sources = []
+            cleaned_answer = manager.finalize_answer(raw_reply, sources)
             assistant_record = _persist_assistant_turn(
                 store=store,
                 session_id=payload.session_id,
                 reply=cleaned_answer,
-                sources=completion_request.sources,
-                usage=usage_payload,
+                sources=sources,
+                usage=final_usage,
+                action=final_action,
             )
             yield _sse_event(
                 "completion",
@@ -560,9 +407,10 @@ def stream_message(
                     store=store,
                     session_id=payload.session_id,
                     reply=cleaned_answer,
-                    sources=completion_request.sources,
-                    usage=usage_payload,
+                    sources=sources,
+                    usage=final_usage,
                     assistant_message_id=assistant_record.id,
+                    action=final_action,
                 ),
             )
         except Exception as exc:
